@@ -193,6 +193,7 @@ pub fn run_root_list(
     history: &mut History,
     config: Config,
     items: Vec<ListItem>,
+    extra_actions: Vec<Action>,
 ) -> Result<()> {
     let items_vec: Vec<FilterItem> = items
         .into_iter()
@@ -207,23 +208,18 @@ pub fn run_root_list(
         })
         .collect();
 
-    let actions = vec![Action {
-        title: Some("Edit Config".to_string()),
-        key: Some("s".to_string()),
-        action_type: ActionType::Exec,
-        open: None,
-        copy: None,
-        run: None,
-        exec: Some(ExecAction {
-            command: "sunbeam edit --config".to_string(),
-            interactive: Some(true),
-            dir: None,
-            exit: None,
-        }),
-        edit: None,
-        config: None,
-        reload: None,
-    }];
+    let actions = if extra_actions.is_empty() {
+        vec![Action {
+            title: Some("Edit Config".to_string()),
+            key: Some("s".to_string()),
+            action_type: ActionType::Exec,
+            open: None, copy: None, run: None,
+            exec: Some(ExecAction { command: "sunbeam edit --config".into(), interactive: Some(true), dir: None, exit: None }),
+            edit: None, config: None, reload: None,
+        }]
+    } else {
+        extra_actions
+    };
 
     let filtered = filter_items(&items_vec, "");
     let selection = filtered.first().copied().map(|(i, _)| i).unwrap_or(0);
