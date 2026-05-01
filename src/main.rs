@@ -64,7 +64,7 @@ fn extension_help(cfg: &Config) -> String {
         let title = extensions::load_extension(&ext_cfg.origin)
             .map(|e| e.manifest.title)
             .unwrap_or_default();
-        s.push_str(&format!("  {:>width$}    {title}\n", alias, width = max_len));
+        s.push_str(&format!("  {:<width$}    {title}\n", alias, width = max_len));
     }
     format!("\n\nExtensions:\n{s}")
 }
