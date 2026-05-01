@@ -1,5 +1,5 @@
 use std::io::{self};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -136,7 +136,7 @@ fn fuzzy_score(text: &str, pattern: &str) -> i32 {
     for (ti, tc) in text_chars.iter().enumerate() {
         if pi < chars.len() && *tc == chars[pi] {
             if pi > 0 {
-                if first_match.map_or(true, |prev: usize| ti == prev + 1) {
+                if first_match.is_none_or(|prev| ti == prev + 1) {
                     consecutive += 1;
                     score += 10 * consecutive;
                 } else {
@@ -155,7 +155,7 @@ fn fuzzy_score(text: &str, pattern: &str) -> i32 {
     if pi == chars.len() { score.max(1) } else { 0 }
 }
 
-fn filter_items<'a>(items: &'a [FilterItem], query: &str) -> Vec<(usize, i32)> {
+fn filter_items(items: &[FilterItem], query: &str) -> Vec<(usize, i32)> {
     if query.is_empty() {
         return items.iter().enumerate().map(|(i, _)| (i, i32::MAX)).collect();
     }
@@ -167,13 +167,13 @@ fn filter_items<'a>(items: &'a [FilterItem], query: &str) -> Vec<(usize, i32)> {
             if score > 0 { Some((i, score)) } else { None }
         })
         .collect();
-    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    scored.sort_by_key(|k| std::cmp::Reverse(k.1));
     scored
 }
 
 pub fn run_root_list(
     title: &str,
-    config_path: &PathBuf,
+    config_path: &Path,
     history: &mut History,
     config: Config,
     items: Vec<ListItem>,
@@ -199,7 +199,7 @@ pub fn run_root_list(
         copy: None,
         run: None,
         exec: Some(ExecAction {
-            command: format!("sunbeam edit --config"),
+            command: "sunbeam edit --config".to_string(),
             interactive: Some(true),
             dir: None,
             exit: None,
@@ -221,7 +221,7 @@ pub fn run_root_list(
         action_selection: 0,
         action_mode: false,
         page_stack: vec![Page::Root],
-        config_path: config_path.clone(),
+        config_path: config_path.to_path_buf(),
         config,
         history: history.clone(),
         form: None,
@@ -603,17 +603,12 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
 
 fn get_current_list_actions(app: &AppState) -> Vec<Action> {
     // Check current page
-    if let Some(page) = app.page_stack.last() {
-        match page {
-            Page::Runner(runner) => {
-                let idx = runner.filtered_items.get(runner.selection).copied().unwrap_or(0);
-                if let Some(item) = runner.items.get(idx) {
-                    return item.item.actions.as_ref().cloned().unwrap_or_default();
-                }
-                return runner.actions.clone();
-            }
-            _ => {}
+    if let Some(Page::Runner(runner)) = app.page_stack.last() {
+        let idx = runner.filtered_items.get(runner.selection).copied().unwrap_or(0);
+        if let Some(item) = runner.items.get(idx) {
+            return item.item.actions.as_ref().cloned().unwrap_or_default();
         }
+        return runner.actions.clone();
     }
 
     // Root page
@@ -741,7 +736,7 @@ fn dispatch_action(app: &mut AppState, action: Action) -> Result<bool> {
                     }
                     if let Ok(output) = cmd.output() {
                         if !output.status.success() {
-                            app.notification = format!("Command failed");
+                            app.notification = "Command failed".to_string();
                         } else if !output.stdout.is_empty() {
                             let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
                             app.notification = text;
@@ -942,14 +937,9 @@ fn render(f: &mut Frame, app: &AppState) {
     }
 
     // Check if we're on a runner page
-    if let Some(page) = app.page_stack.last() {
-        match page {
-            Page::Runner(runner) => {
-                render_runner(f, area, runner);
-                return;
-            }
-            _ => {}
-        }
+    if let Some(Page::Runner(runner)) = app.page_stack.last() {
+        render_runner(f, area, runner);
+        return;
     }
 
     render_root_list(f, area, app);

@@ -61,9 +61,7 @@ pub fn open_target(target: &str) -> Result<()> {
 
 #[allow(dead_code)]
 pub fn strip_ansi(s: &str) -> String {
-    regex::Regex::new(r"[\x1b\x9b][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\x07)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PRZcf-ntqry=><~]))")
-        .map(|re| re.replace_all(s, "").to_string())
-        .unwrap_or_else(|_| s.to_string())
+    strip_ansi_escapes::strip_str(s)
 }
 
 /// Normalize an extension origin (local path or URL)

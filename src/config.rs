@@ -104,9 +104,9 @@ impl Config {
     }
 
     pub fn resolve(&self, path: &str) -> PathBuf {
-        if path.starts_with("~/") {
+        if let Some(rest) = path.strip_prefix("~/") {
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-            return home.join(&path[2..]);
+            return home.join(rest);
         }
         let pb = PathBuf::from(path);
         if pb.is_relative() {

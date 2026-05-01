@@ -31,14 +31,11 @@ impl History {
         })
     }
 
-    pub fn sort(&self, items: &mut Vec<ListItem>) {
+    pub fn sort(&self, items: &mut [ListItem]) {
         let entries = &self.entries;
-        items.sort_by(|a, b| {
-            let key_a = a.id.as_deref().unwrap_or(&a.title).to_string();
-            let key_b = b.id.as_deref().unwrap_or(&b.title).to_string();
-            let score_a = entries.get(&key_a).unwrap_or(&0);
-            let score_b = entries.get(&key_b).unwrap_or(&0);
-            score_b.cmp(score_a)
+        items.sort_by_key(|item| {
+            let key = item.id.as_deref().unwrap_or(&item.title);
+            std::cmp::Reverse(entries.get(key).copied().unwrap_or(0))
         });
     }
 

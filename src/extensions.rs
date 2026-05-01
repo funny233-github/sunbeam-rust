@@ -59,7 +59,7 @@ pub fn load_entrypoint(origin: &str, extension_dir: &Path) -> Result<PathBuf> {
         let url = url::Url::parse(origin)?;
         let filename = url
             .path_segments()
-            .and_then(|segments| segments.last())
+            .and_then(|mut segments| segments.next_back())
             .unwrap_or("extension");
         let entrypoint = extension_dir.join(filename);
 
@@ -153,7 +153,7 @@ pub fn upgrade(extension_config: &config::ExtensionConfig) -> Result<()> {
         let url = url::Url::parse(&extension_config.origin)?;
         let filename = url
             .path_segments()
-            .and_then(|segments| segments.last())
+            .and_then(|mut segments| segments.next_back())
             .unwrap_or("extension");
         let entrypoint = extension_dir.join(filename);
         std::fs::create_dir_all(&extension_dir)?;
