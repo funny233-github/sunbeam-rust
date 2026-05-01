@@ -1,0 +1,24 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+        "text": {
+            "type": "string"
+        },
+        "markdown": {
+            "type": "string"
+        },
+        "actions": {
+            "type": "array",
+            "items": {
+                "$ref": "./action.schema.json"
+            }
+        }
+    },
+    "not": {
+        "required": [
+            "text",
+            "markdown"
+        ]
+    }
+}
