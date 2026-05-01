@@ -2,7 +2,7 @@ use std::io::Read;
 
 use anyhow::{Context, Result};
 use arboard::Clipboard;
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{Parser, Subcommand, Args};
 
 use crate::config::{self, Config, ExtensionConfig, Oneliner};
 use crate::extensions;
@@ -11,110 +11,87 @@ use crate::types::{self, Action, ActionType, CopyAction, EditAction, ExecAction,
 use crate::utils;
 use crate::tui;
 
-/// Builds the top-level CLI definition with all subcommands.
-pub fn build_cli() -> Command {
-    Command::new("sunbeam")
-        .about("Command Line Launcher")
-        .version(env!("CARGO_PKG_VERSION"))
-        .subcommand_required(false)
-        .arg_required_else_help(false)
-        .subcommand(
-            Command::new("validate")
-                .about("Validate a Sunbeam schema")
-                .subcommand_required(true)
-                .subcommand(
-                    Command::new("list")
-                        .about("Validate a list")
-                )
-                .subcommand(
-                    Command::new("detail")
-                        .about("Validate a detail")
-                )
-                .subcommand(
-                    Command::new("manifest")
-                        .about("Validate a manifest")
-                )
-                .subcommand(
-                    Command::new("config")
-                        .about("Validate a config")
-                        .arg(Arg::new("path").help("config file path"))
-                )
-        )
-        .subcommand(
-            Command::new("edit")
-                .about("Open a file in your editor")
-                .arg(Arg::new("file").help("file to edit"))
-                .arg(Arg::new("extension")
-                    .short('e')
-                    .long("extension")
-                    .help("File extension for temp file"))
-                .arg(Arg::new("config")
-                    .short('c')
-                    .long("config")
-                    .help("Edit config file")
-                    .action(ArgAction::SetTrue))
-        )
-        .subcommand(
-            Command::new("copy")
-                .about("Copy text from stdin to clipboard")
-        )
-        .subcommand(
-            Command::new("paste")
-                .about("Paste text from clipboard to stdout")
-        )
-        .subcommand(
-            Command::new("open")
-                .about("Open a file or URL")
-                .arg(Arg::new("target").required(true))
-        )
-        .subcommand(
-            Command::new("extension")
-                .about("Manage sunbeam extensions")
-                .subcommand_required(true)
-                .subcommand(
-                    Command::new("install")
-                        .about("Install an extension")
-                        .alias("add")
-                        .arg(Arg::new("origin").required(true))
-                        .arg(Arg::new("alias").long("alias").short('a'))
-                )
-                .subcommand(
-                    Command::new("list")
-                        .about("List extensions")
-                        .alias("ls")
-                )
-                .subcommand(
-                    Command::new("remove")
-                        .about("Remove extensions")
-                        .alias("rm")
-                        .alias("uninstall")
-                        .arg(Arg::new("aliases").required(true).num_args(1..))
-                )
-                .subcommand(
-                    Command::new("rename")
-                        .about("Rename an extension")
-                        .alias("mv")
-                        .arg(Arg::new("old").required(true))
-                        .arg(Arg::new("new").required(true))
-                )
-                .subcommand(
-                    Command::new("upgrade")
-                        .about("Upgrade extensions")
-                        .arg(Arg::new("alias"))
-                        .arg(Arg::new("all").long("all").action(ArgAction::SetTrue))
-                )
-                .subcommand(
-                    Command::new("configure")
-                        .about("Configure extension preferences")
-                        .alias("config")
-                        .arg(Arg::new("alias").required(true))
-                )
-                .subcommand(
-                    Command::new("edit")
-                        .about("Edit an extension script")
-                        .arg(Arg::new("alias").required(true))
-                )
-        )
+#[derive(Parser)]
+#[command(name = "sunbeam", version, about = "Command Line Launcher")]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Validate a Sunbeam schema
+    #[command(subcommand)]
+    Validate(ValidateCommands),
+    /// Open a file in your editor
+    Edit(EditArgs),
+    /// Copy text from stdin to clipboard
+    Copy,
+    /// Paste text from clipboard to stdout
+    Paste,
+    /// Open a file or URL
+    Open { target: String },
+    /// Manage sunbeam extensions
+    #[command(subcommand)]
+    Extension(ExtensionCommands),
+}
+
+#[derive(Subcommand)]
+pub enum ValidateCommands {
+    /// Validate a list
+    List,
+    /// Validate a detail
+    Detail,
+    /// Validate a manifest
+    Manifest,
+    /// Validate a config
+    Config { path: Option<String> },
+}
+
+#[derive(Args)]
+pub struct EditArgs {
+    /// File to edit
+    pub file: Option<String>,
+    /// File extension for temp file
+    #[arg(short = 'e', long = "extension")]
+    pub extension: Option<String>,
+    /// Edit config file
+    #[arg(short = 'c', long = "config", default_value_t = false)]
+    pub config: bool,
+}
+
+#[derive(Subcommand)]
+pub enum ExtensionCommands {
+    /// Install an extension
+    #[command(alias = "add")]
+    Install {
+        origin: String,
+        #[arg(long, short)]
+        alias: Option<String>,
+    },
+    /// List extensions
+    #[command(alias = "ls")]
+    List,
+    /// Remove extensions
+    #[command(alias = "rm", alias = "uninstall")]
+    Remove {
+        #[arg(required = true)]
+        aliases: Vec<String>,
+    },
+    /// Rename an extension
+    #[command(alias = "mv")]
+    Rename { old: String, new: String },
+    /// Upgrade extensions
+    Upgrade {
+        alias: Option<String>,
+        #[arg(long)]
+        all: bool,
+    },
+    /// Configure extension preferences
+    #[command(alias = "config")]
+    Configure { alias: String },
+    /// Edit an extension script
+    Edit { alias: String },
 }
 
 /// Default sunbeam.json content used when no config file exists.
@@ -127,17 +104,7 @@ fn default_config_bytes() -> &'static [u8] {
 }"#
 }
 
-/// Returns `true` when the `SUNBEAM` environment variable is set (i.e. the
-/// current process was spawned by another sunbeam process).
-#[allow(dead_code)]
-fn is_sunbeam_running() -> bool {
-    std::env::var("SUNBEAM").is_ok()
-}
-
 /// Loads the config, creating a default one if the file does not exist.
-///
-/// # Panics
-/// Exits the process on error.
 fn load_config_or_default() -> Config {
     let config_path = config::resolve_config_path();
     if !config_path.exists() {
@@ -166,81 +133,64 @@ fn load_config_or_default() -> Config {
 /// # Errors
 /// Propagates errors from the dispatched subcommand.
 pub fn run() -> Result<()> {
-    let cli = build_cli();
-    let matches = cli.get_matches();
+    let cli = Cli::parse();
 
-    match matches.subcommand() {
-        Some(("validate", sub)) => run_validate(sub)?,
-        Some(("edit", sub)) => run_edit(sub)?,
-        Some(("copy", _)) => run_copy()?,
-        Some(("paste", _)) => run_paste()?,
-        Some(("open", sub)) => run_open(sub)?,
-        Some(("extension", sub)) => run_extension(sub)?,
-        _ => run_root()?,
+    match cli.command {
+        None => run_root()?,
+        Some(Commands::Validate(cmd)) => run_validate(cmd)?,
+        Some(Commands::Edit(args)) => run_edit(args)?,
+        Some(Commands::Copy) => run_copy()?,
+        Some(Commands::Paste) => run_paste()?,
+        Some(Commands::Open { target }) => utils::open_target(&target)?,
+        Some(Commands::Extension(cmd)) => run_extension(cmd)?,
     }
 
     Ok(())
 }
 
 /// Handles `sunbeam validate <list|detail|manifest|config>`.
-///
-/// Reads JSON from stdin (or a file for `validate config`) and validates it
-/// against the corresponding JSON Schema.
-fn run_validate(matches: &ArgMatches) -> Result<()> {
-    match matches.subcommand() {
-        Some(("list", _)) => {
+fn run_validate(cmd: ValidateCommands) -> Result<()> {
+    match cmd {
+        ValidateCommands::List => {
             let mut input = Vec::new();
             std::io::stdin().read_to_end(&mut input)?;
-            crate::schemas::validate_list(&input)
-                .context("list is invalid")?;
+            crate::schemas::validate_list(&input).context("list is invalid")?;
             println!("List is valid!");
         }
-        Some(("detail", _)) => {
+        ValidateCommands::Detail => {
             let mut input = Vec::new();
             std::io::stdin().read_to_end(&mut input)?;
-            crate::schemas::validate_detail(&input)
-                .context("detail is invalid")?;
+            crate::schemas::validate_detail(&input).context("detail is invalid")?;
             println!("Detail is valid!");
         }
-        Some(("manifest", _)) => {
+        ValidateCommands::Manifest => {
             let mut input = Vec::new();
             std::io::stdin().read_to_end(&mut input)?;
-            crate::schemas::validate_manifest(&input)
-                .context("manifest is invalid")?;
+            crate::schemas::validate_manifest(&input).context("manifest is invalid")?;
             println!("Manifest is valid!");
         }
-        Some(("config", sub)) => {
-            let input = if let Some(path) = sub.get_one::<String>("path") {
-                std::fs::read(path)?
-            } else {
-                let mut buf = Vec::new();
-                if atty::is(atty::Stream::Stdin) {
-                    let config_path = config::resolve_config_path();
-                    std::fs::read(&config_path)?
-                } else {
+        ValidateCommands::Config { path } => {
+            let input = match path {
+                Some(p) => std::fs::read(p)?,
+                None if !atty::is(atty::Stream::Stdin) => {
+                    let mut buf = Vec::new();
                     std::io::stdin().read_to_end(&mut buf)?;
                     buf
                 }
+                _ => std::fs::read(config::resolve_config_path())?,
             };
-            crate::schemas::validate_config(&input)
-                .context("config is invalid")?;
+            crate::schemas::validate_config(&input).context("config is invalid")?;
             println!("Config is valid!");
         }
-        _ => unreachable!(),
     }
     Ok(())
 }
 
 /// Handles `sunbeam edit [file]`.
-///
-/// Opens the specified file, or the config file (`--config`), or creates a temp
-/// file pre-populated from stdin and outputs the edited result.
-fn run_edit(matches: &ArgMatches) -> Result<()> {
-    let edit_config = matches.get_flag("config");
-    let extension = matches.get_one::<String>("extension");
+fn run_edit(args: EditArgs) -> Result<()> {
+    let editor = utils::find_editor();
 
-    if let Some(file) = matches.get_one::<String>("file") {
-        let editor = utils::find_editor();
+    if let Some(file) = args.file {
         std::process::Command::new("sh")
             .args(["-c", &format!("{} {}", editor, file)])
             .status()
@@ -248,9 +198,8 @@ fn run_edit(matches: &ArgMatches) -> Result<()> {
         return Ok(());
     }
 
-    if edit_config {
+    if args.config {
         let config_path = config::resolve_config_path();
-        let editor = utils::find_editor();
         std::process::Command::new("sh")
             .args(["-c", &format!("{} {}", editor, config_path.display())])
             .status()
@@ -259,7 +208,7 @@ fn run_edit(matches: &ArgMatches) -> Result<()> {
     }
 
     let temp_dir = tempfile::tempdir()?;
-    let ext_str = extension.map(|s| s.as_str()).unwrap_or("");
+    let ext_str = args.extension.as_deref().unwrap_or("");
     let file_name = if ext_str.is_empty() {
         "sunbeam-edit".to_string()
     } else {
@@ -275,7 +224,6 @@ fn run_edit(matches: &ArgMatches) -> Result<()> {
         std::fs::write(&temp_path, "")?;
     }
 
-    let editor = utils::find_editor();
     let tty = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -293,7 +241,6 @@ fn run_edit(matches: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
-/// Handles `sunbeam copy`: reads stdin and copies it to the clipboard.
 fn run_copy() -> Result<()> {
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
@@ -302,7 +249,6 @@ fn run_copy() -> Result<()> {
     Ok(())
 }
 
-/// Handles `sunbeam paste`: reads clipboard content and writes to stdout.
 fn run_paste() -> Result<()> {
     let mut clipboard = Clipboard::new()?;
     let text = clipboard.get_text()?;
@@ -310,25 +256,17 @@ fn run_paste() -> Result<()> {
     Ok(())
 }
 
-/// Handles `sunbeam open <target>`.
-fn run_open(matches: &ArgMatches) -> Result<()> {
-    let target = matches.get_one::<String>("target").unwrap();
-    utils::open_target(target)
-}
-
-/// Dispatches all `sunbeam extension <subcommand>` actions.
-fn run_extension(matches: &ArgMatches) -> Result<()> {
+fn run_extension(cmd: ExtensionCommands) -> Result<()> {
     let mut cfg = load_config_or_default();
 
-    match matches.subcommand() {
-        Some(("install", sub)) => {
-            let origin = sub.get_one::<String>("origin").unwrap();
-            let origin = utils::normalize_origin(origin)?;
-            let alias = sub.get_one::<String>("alias").cloned()
-                .unwrap_or_else(|| utils::extract_alias(&origin).unwrap_or_else(|_| "extension".to_string()));
+    match cmd {
+        ExtensionCommands::Install { origin, alias } => {
+            let origin = utils::normalize_origin(&origin)?;
+            let alias = alias.unwrap_or_else(|| {
+                utils::extract_alias(&origin).unwrap_or_else(|_| "extension".to_string())
+            });
 
-            extensions::load_extension(&origin)
-                .context("failed to load extension")?;
+            extensions::load_extension(&origin).context("failed to load extension")?;
 
             let exts = cfg.extensions.get_or_insert_with(std::collections::HashMap::new);
             if exts.contains_key(&alias) {
@@ -342,18 +280,17 @@ fn run_extension(matches: &ArgMatches) -> Result<()> {
             cfg.save()?;
             println!("Installed {}", alias);
         }
-        Some(("list", _)) => {
+        ExtensionCommands::List => {
             if let Some(exts) = &cfg.extensions {
                 for (alias, ext) in exts {
                     println!("{}\t{}", alias, ext.origin);
                 }
             }
         }
-        Some(("remove", sub)) => {
-            let aliases: Vec<&String> = sub.get_many("aliases").unwrap().collect();
+        ExtensionCommands::Remove { aliases } => {
             if let Some(exts) = &mut cfg.extensions {
                 for alias in &aliases {
-                    exts.remove(*alias);
+                    exts.remove(alias);
                 }
             }
             cfg.save()?;
@@ -363,14 +300,12 @@ fn run_extension(matches: &ArgMatches) -> Result<()> {
                 println!("Removed {} extensions", aliases.len());
             }
         }
-        Some(("rename", sub)) => {
-            let old = sub.get_one::<String>("old").unwrap();
-            let new = sub.get_one::<String>("new").unwrap();
+        ExtensionCommands::Rename { old, new } => {
             let exts = cfg.extensions.get_or_insert_with(std::collections::HashMap::new);
-            if exts.contains_key(new) {
+            if exts.contains_key(&new) {
                 anyhow::bail!("extension {} already exists", new);
             }
-            if let Some(ext) = exts.remove(old) {
+            if let Some(ext) = exts.remove(&old) {
                 exts.insert(new.clone(), ext);
             } else {
                 anyhow::bail!("extension {} not found", old);
@@ -378,12 +313,9 @@ fn run_extension(matches: &ArgMatches) -> Result<()> {
             cfg.save()?;
             println!("Renamed {} to {}", old, new);
         }
-        Some(("upgrade", sub)) => {
-            let all = sub.get_flag("all");
-            let alias = sub.get_one::<String>("alias");
-
+        ExtensionCommands::Upgrade { alias, all } => {
             if let Some(alias) = alias {
-                if let Some(ext_cfg) = cfg.extensions.as_ref().and_then(|e| e.get(alias)) {
+                if let Some(ext_cfg) = cfg.extensions.as_ref().and_then(|e| e.get(&alias)) {
                     extensions::upgrade(ext_cfg)?;
                     println!("Upgraded {}", alias);
                 } else {
@@ -400,10 +332,9 @@ fn run_extension(matches: &ArgMatches) -> Result<()> {
                 anyhow::bail!("provide an extension or use --all");
             }
         }
-        Some(("configure", sub)) => {
-            let alias = sub.get_one::<String>("alias").unwrap();
+        ExtensionCommands::Configure { alias } => {
             let ext_cfg = cfg.extensions.as_ref()
-                .and_then(|e| e.get(alias))
+                .and_then(|e| e.get(&alias))
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("extension {} not found", alias))?;
 
@@ -423,12 +354,11 @@ fn run_extension(matches: &ArgMatches) -> Result<()> {
                 p
             }).collect();
 
-            tui::run_form(alias, &mut cfg, ext_cfg, inputs)?;
+            tui::run_form(&alias, &mut cfg, ext_cfg, inputs)?;
         }
-        Some(("edit", sub)) => {
-            let alias = sub.get_one::<String>("alias").unwrap();
+        ExtensionCommands::Edit { alias } => {
             let ext_cfg = cfg.extensions.as_ref()
-                .and_then(|e| e.get(alias))
+                .and_then(|e| e.get(&alias))
                 .ok_or_else(|| anyhow::anyhow!("extension {} not found", alias))?;
             if ext_cfg.origin.starts_with("http://") || ext_cfg.origin.starts_with("https://") {
                 anyhow::bail!("cannot edit remote extensions");
@@ -440,15 +370,10 @@ fn run_extension(matches: &ArgMatches) -> Result<()> {
                 .status()
                 .context("editor exited with error")?;
         }
-        _ => unreachable!(),
     }
     Ok(())
 }
 
-/// Handles the default case (no subcommand, or piped output).
-///
-/// If stdout is not a TTY, the config is printed as JSON. Otherwise the TUI
-/// root list is launched.
 fn run_root() -> Result<()> {
     let cfg = load_config_or_default();
 
