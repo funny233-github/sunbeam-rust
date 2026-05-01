@@ -19,13 +19,11 @@ fn compile_schema(schema_str: &str) -> JSONSchema {
 
 fn instance() -> &'static Schemas {
     static INSTANCE: OnceCell<Schemas> = OnceCell::new();
-    INSTANCE.get_or_init(|| {
-        Schemas {
-            list: compile_schema(LIST_SCHEMA),
-            detail: compile_schema(DETAIL_SCHEMA),
-            manifest: compile_schema(MANIFEST_SCHEMA),
-            config: compile_schema(CONFIG_SCHEMA),
-        }
+    INSTANCE.get_or_init(|| Schemas {
+        list: compile_schema(LIST_SCHEMA),
+        detail: compile_schema(DETAIL_SCHEMA),
+        manifest: compile_schema(MANIFEST_SCHEMA),
+        config: compile_schema(CONFIG_SCHEMA),
     })
 }
 
@@ -37,8 +35,7 @@ struct Schemas {
 }
 
 fn validate(schema: &JSONSchema, input: &[u8]) -> Result<()> {
-    let value: serde_json::Value = serde_json::from_slice(input)
-        .context("failed to parse JSON")?;
+    let value: serde_json::Value = serde_json::from_slice(input).context("failed to parse JSON")?;
     if let Err(errors) = schema.validate(&value) {
         let mut msgs: Vec<String> = Vec::new();
         for err in errors {

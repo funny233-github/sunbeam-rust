@@ -10,9 +10,9 @@ use crossterm::ExecutableCommand;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, Borders, ListDirection, Paragraph, Wrap};
 use ratatui::widgets::List as TuiList;
 use ratatui::widgets::ListItem as TuiListItem;
+use ratatui::widgets::{Block, Borders, ListDirection, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::config::{Config, ExtensionConfig};
@@ -123,7 +123,11 @@ fn fuzzy_score(text: &str, pattern: &str) -> i32 {
     let case_sensitive = pattern.chars().any(|c| c.is_uppercase());
 
     let search_text = if case_sensitive { text } else { &lower_text };
-    let search_pattern = if case_sensitive { pattern } else { &lower_pattern };
+    let search_pattern = if case_sensitive {
+        pattern
+    } else {
+        &lower_pattern
+    };
 
     let mut pi = 0;
     let chars: Vec<char> = search_pattern.chars().collect();
@@ -152,7 +156,11 @@ fn fuzzy_score(text: &str, pattern: &str) -> i32 {
         }
     }
 
-    if pi == chars.len() { score.max(1) } else { 0 }
+    if pi == chars.len() {
+        score.max(1)
+    } else {
+        0
+    }
 }
 
 /// Filters and scores items against a query string.
@@ -160,14 +168,22 @@ fn fuzzy_score(text: &str, pattern: &str) -> i32 {
 /// Returns indices into `items` sorted by descending score.
 fn filter_items(items: &[FilterItem], query: &str) -> Vec<(usize, i32)> {
     if query.is_empty() {
-        return items.iter().enumerate().map(|(i, _)| (i, i32::MAX)).collect();
+        return items
+            .iter()
+            .enumerate()
+            .map(|(i, _)| (i, i32::MAX))
+            .collect();
     }
     let mut scored: Vec<(usize, i32)> = items
         .iter()
         .enumerate()
         .filter_map(|(i, item)| {
             let score = fuzzy_score(&item.filter_text, query);
-            if score > 0 { Some((i, score)) } else { None }
+            if score > 0 {
+                Some((i, score))
+            } else {
+                None
+            }
         })
         .collect();
     scored.sort_by_key(|k| std::cmp::Reverse(k.1));
@@ -202,7 +218,10 @@ pub fn run_root_list(
                 "{} {} {}",
                 item.title,
                 item.subtitle.as_deref().unwrap_or(""),
-                item.accessories.as_ref().map(|a| a.join(" ")).unwrap_or_default()
+                item.accessories
+                    .as_ref()
+                    .map(|a| a.join(" "))
+                    .unwrap_or_default()
             );
             FilterItem { item, filter_text }
         })
@@ -213,9 +232,18 @@ pub fn run_root_list(
             title: Some("Edit Config".to_string()),
             key: Some("s".to_string()),
             action_type: ActionType::Exec,
-            open: None, copy: None, run: None,
-            exec: Some(ExecAction { command: "sunbeam edit --config".into(), interactive: Some(true), dir: None, exit: None }),
-            edit: None, config: None, reload: None,
+            open: None,
+            copy: None,
+            run: None,
+            exec: Some(ExecAction {
+                command: "sunbeam edit --config".into(),
+                interactive: Some(true),
+                dir: None,
+                exit: None,
+            }),
+            edit: None,
+            config: None,
+            reload: None,
         }]
     } else {
         extra_actions
@@ -252,7 +280,12 @@ pub fn run_root_list(
 ///
 /// # Errors
 /// Returns an error if the terminal cannot be initialised.
-pub fn run_form(alias: &str, cfg: &mut Config, ext_cfg: ExtensionConfig, inputs: Vec<Input>) -> Result<()> {
+pub fn run_form(
+    alias: &str,
+    cfg: &mut Config,
+    ext_cfg: ExtensionConfig,
+    inputs: Vec<Input>,
+) -> Result<()> {
     let fields: Vec<FormField> = inputs
         .into_iter()
         .map(|input| {
@@ -263,7 +296,11 @@ pub fn run_form(alias: &str, cfg: &mut Config, ext_cfg: ExtensionConfig, inputs:
                 Some(v) => (v.as_str().unwrap_or("").to_string(), false),
                 None => (String::new(), false),
             };
-            FormField { input, value, checked }
+            FormField {
+                input,
+                value,
+                checked,
+            }
         })
         .collect();
 
@@ -411,7 +448,8 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 if detail.actions.is_empty() {
                     return Ok(true);
                 }
-                let action = if detail.action_mode && detail.inner_selection < detail.actions.len() {
+                let action = if detail.action_mode && detail.inner_selection < detail.actions.len()
+                {
                     detail.actions[detail.inner_selection].clone()
                 } else if !detail.actions.is_empty() {
                     detail.actions[0].clone()
@@ -429,7 +467,12 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 }
                 let action = item_actions[0].clone();
 
-                let key = item.item.id.as_deref().unwrap_or(&item.item.title).to_string();
+                let key = item
+                    .item
+                    .id
+                    .as_deref()
+                    .unwrap_or(&item.item.title)
+                    .to_string();
                 app.history.update(&key);
 
                 return dispatch_action(app, action);
@@ -464,8 +507,10 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 return Ok(true);
             }
             app.query.pop();
-            app.filtered_items =
-                filter_items(&app.items, &app.query).iter().map(|(i, _)| *i).collect();
+            app.filtered_items = filter_items(&app.items, &app.query)
+                .iter()
+                .map(|(i, _)| *i)
+                .collect();
             if !app.filtered_items.is_empty() {
                 app.selection = 0;
             }
@@ -520,25 +565,23 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                                 subtitle: None,
                                 detail: None,
                                 accessories: Some(vec!["Oneliner".to_string()]),
-                                actions: Some(vec![
-                                    Action {
-                                        title: Some("Run".to_string()),
-                                        key: None,
-                                        action_type: ActionType::Exec,
-                                        open: None,
-                                        copy: None,
-                                        run: None,
-                                        exec: Some(ExecAction {
-                                            command: o.command.clone(),
-                                            interactive: o.interactive,
-                                            dir: o.cwd.clone(),
-                                            exit: o.exit,
-                                        }),
-                                        edit: None,
-                                        config: None,
-                                        reload: None,
-                                    },
-                                ]),
+                                actions: Some(vec![Action {
+                                    title: Some("Run".to_string()),
+                                    key: None,
+                                    action_type: ActionType::Exec,
+                                    open: None,
+                                    copy: None,
+                                    run: None,
+                                    exec: Some(ExecAction {
+                                        command: o.command.clone(),
+                                        interactive: o.interactive,
+                                        dir: o.cwd.clone(),
+                                        exit: o.exit,
+                                    }),
+                                    edit: None,
+                                    config: None,
+                                    reload: None,
+                                }]),
                             },
                         });
                     }
@@ -556,26 +599,24 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                                         subtitle: Some(extension.manifest.title.clone()),
                                         detail: None,
                                         accessories: Some(vec!["Command".to_string()]),
-                                        actions: Some(vec![
-                                            Action {
-                                                title: Some("Run".to_string()),
-                                                key: None,
-                                                action_type: ActionType::Run,
-                                                open: None,
-                                                copy: None,
-                                                run: Some(RunAction {
-                                                    extension: Some(alias.clone()),
-                                                    command: cmd.name.clone(),
-                                                    params: None,
-                                                    reload: None,
-                                                    exit: None,
-                                                }),
-                                                exec: None,
-                                                edit: None,
-                                                config: None,
+                                        actions: Some(vec![Action {
+                                            title: Some("Run".to_string()),
+                                            key: None,
+                                            action_type: ActionType::Run,
+                                            open: None,
+                                            copy: None,
+                                            run: Some(RunAction {
+                                                extension: Some(alias.clone()),
+                                                command: cmd.name.clone(),
+                                                params: None,
                                                 reload: None,
-                                            },
-                                        ]),
+                                                exit: None,
+                                            }),
+                                            exec: None,
+                                            edit: None,
+                                            config: None,
+                                            reload: None,
+                                        }]),
                                     },
                                 });
                             }
@@ -583,8 +624,10 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                     }
                 }
                 app.items = new_items;
-                app.filtered_items =
-                    filter_items(&app.items, &app.query).iter().map(|(i, _)| *i).collect();
+                app.filtered_items = filter_items(&app.items, &app.query)
+                    .iter()
+                    .map(|(i, _)| *i)
+                    .collect();
                 if !app.filtered_items.is_empty() {
                     app.selection = 0;
                 }
@@ -607,8 +650,10 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 return Ok(true);
             }
             app.query.push(c);
-            app.filtered_items =
-                filter_items(&app.items, &app.query).iter().map(|(i, _)| *i).collect();
+            app.filtered_items = filter_items(&app.items, &app.query)
+                .iter()
+                .map(|(i, _)| *i)
+                .collect();
             if !app.filtered_items.is_empty() {
                 app.selection = 0;
             }
@@ -621,7 +666,11 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
 /// Returns the actions for the currently selected item or page.
 fn get_current_list_actions(app: &AppState) -> Vec<Action> {
     if let Some(Page::Runner(runner)) = app.page_stack.last() {
-        let idx = runner.filtered_items.get(runner.selection).copied().unwrap_or(0);
+        let idx = runner
+            .filtered_items
+            .get(runner.selection)
+            .copied()
+            .unwrap_or(0);
         if let Some(item) = runner.items.get(idx) {
             return item.item.actions.as_ref().cloned().unwrap_or_default();
         }
@@ -662,7 +711,8 @@ fn dispatch_action(app: &mut AppState, action: Action) -> Result<bool> {
                                 r#query: None,
                             };
 
-                            let cmd_mode = extension.command(&run.command)
+                            let cmd_mode = extension
+                                .command(&run.command)
                                 .map(|c| c.mode.clone().unwrap_or(CommandMode::Filter))
                                 .unwrap_or(CommandMode::Filter);
                             match cmd_mode {
@@ -678,7 +728,8 @@ fn dispatch_action(app: &mut AppState, action: Action) -> Result<bool> {
                                     terminal::enable_raw_mode()?;
                                     if let Err(e) = result {
                                         app.notification = format!("Error: {}", e);
-                                        app.notification_until = Some(Instant::now() + Duration::from_secs(2));
+                                        app.notification_until =
+                                            Some(Instant::now() + Duration::from_secs(2));
                                     }
                                 }
                                 CommandMode::Tty => {
@@ -777,15 +828,18 @@ fn dispatch_action(app: &mut AppState, action: Action) -> Result<bool> {
                 if let Some(ext_cfg) = app.config.extensions.as_ref().and_then(|e| e.get(&alias)) {
                     if let Ok(extension) = extensions::load_extension(&ext_cfg.origin) {
                         let prefs = extension.manifest.preferences.unwrap_or_default();
-                        let inputs: Vec<Input> = prefs.into_iter().map(|mut p| {
-                            if let Some(prefs_map) = &ext_cfg.preferences {
-                                if let Some(val) = prefs_map.get(&p.name) {
-                                    p.default = Some(val.clone());
+                        let inputs: Vec<Input> = prefs
+                            .into_iter()
+                            .map(|mut p| {
+                                if let Some(prefs_map) = &ext_cfg.preferences {
+                                    if let Some(val) = prefs_map.get(&p.name) {
+                                        p.default = Some(val.clone());
+                                    }
                                 }
-                            }
-                            p.optional = Some(false);
-                            p
-                        }).collect();
+                                p.optional = Some(false);
+                                p
+                            })
+                            .collect();
 
                         let fields: Vec<FormField> = inputs
                             .into_iter()
@@ -794,12 +848,14 @@ fn dispatch_action(app: &mut AppState, action: Action) -> Result<bool> {
                                     Some(v) if input.input_type == InputType::Boolean => {
                                         (String::new(), v.as_bool().unwrap_or(false))
                                     }
-                                    Some(v) => {
-                                        (v.as_str().unwrap_or("").to_string(), false)
-                                    }
+                                    Some(v) => (v.as_str().unwrap_or("").to_string(), false),
                                     None => (String::new(), false),
                                 };
-                                FormField { input, value, checked }
+                                FormField {
+                                    input,
+                                    value,
+                                    checked,
+                                }
                             })
                             .collect();
 
@@ -838,7 +894,10 @@ fn run_extension_list(
                         "{} {} {}",
                         item.title,
                         item.subtitle.as_deref().unwrap_or(""),
-                        item.accessories.as_ref().map(|a| a.join(" ")).unwrap_or_default()
+                        item.accessories
+                            .as_ref()
+                            .map(|a| a.join(" "))
+                            .unwrap_or_default()
                     );
                     FilterItem { item, filter_text }
                 })
@@ -897,13 +956,9 @@ fn run_extension_detail(
 }
 
 /// Runs an extension command and parses the output as a `List`.
-fn run_extension_and_parse(
-    extension: &extensions::Extension,
-    payload: &Payload,
-) -> Result<List> {
+fn run_extension_and_parse(extension: &extensions::Extension, payload: &Payload) -> Result<List> {
     let output = extension.run(payload)?;
-    crate::schemas::validate_list(&output)
-        .context("invalid list output")?;
+    crate::schemas::validate_list(&output).context("invalid list output")?;
     let list: List = serde_json::from_slice(&output)?;
     Ok(list)
 }
@@ -914,8 +969,7 @@ fn run_extension_and_parse_detail(
     payload: &Payload,
 ) -> Result<Detail> {
     let output = extension.run(payload)?;
-    crate::schemas::validate_detail(&output)
-        .context("invalid detail output")?;
+    crate::schemas::validate_detail(&output).context("invalid detail output")?;
     let detail: Detail = serde_json::from_slice(&output)?;
     Ok(detail)
 }
@@ -926,10 +980,16 @@ fn submit_form(app: &mut AppState, form: FormState) -> Result<bool> {
     for field in &form.fields {
         match field.input.input_type {
             InputType::String | InputType::Number => {
-                values.insert(field.input.name.clone(), serde_json::Value::String(field.value.clone()));
+                values.insert(
+                    field.input.name.clone(),
+                    serde_json::Value::String(field.value.clone()),
+                );
             }
             InputType::Boolean => {
-                values.insert(field.input.name.clone(), serde_json::Value::Bool(field.checked));
+                values.insert(
+                    field.input.name.clone(),
+                    serde_json::Value::Bool(field.checked),
+                );
             }
         }
     }
@@ -999,7 +1059,11 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
         Span::styled("> ", Style::default().fg(Color::Cyan)),
         Span::styled(&query_display, search_style),
     ]))
-    .block(Block::default().borders(Borders::ALL).title(Line::from(" Sunbeam ")));
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(Line::from(" Sunbeam ")),
+    );
     f.render_widget(search, chunks[0]);
 
     let tui_items: Vec<TuiListItem> = app
@@ -1010,7 +1074,9 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
             let item = &app.items[*idx];
             let is_selected = i == app.selection;
             let style = if is_selected {
-                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };
@@ -1032,8 +1098,7 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
         })
         .collect();
 
-    let list = TuiList::new(tui_items)
-        .direction(ListDirection::TopToBottom);
+    let list = TuiList::new(tui_items).direction(ListDirection::TopToBottom);
 
     let list_block = Block::default().borders(Borders::ALL);
     let list_widget = list.block(list_block);
@@ -1070,7 +1135,10 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
             .collect::<Vec<_>>()
             .join("·")
     } else {
-        let first = actions.first().map(|a| a.title.as_deref().unwrap_or("")).unwrap_or("");
+        let first = actions
+            .first()
+            .map(|a| a.title.as_deref().unwrap_or(""))
+            .unwrap_or("");
         format!(" {} · Actions(tab)", first)
     };
 
@@ -1080,8 +1148,7 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
         action_text
     };
 
-    let status = Paragraph::new(status_text)
-        .block(Block::default().borders(Borders::ALL));
+    let status = Paragraph::new(status_text).block(Block::default().borders(Borders::ALL));
     f.render_widget(status, chunks[2]);
 }
 
@@ -1099,7 +1166,11 @@ fn render_detail(f: &mut Frame, area: Rect, detail: &PageDetail) {
     };
 
     let detail_widget = Paragraph::new(Text::raw(detail_text))
-        .block(Block::default().borders(Borders::ALL).title(Line::from(" Detail ")))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(Line::from(" Detail ")),
+        )
         .wrap(Wrap { trim: true });
     f.render_widget(detail_widget, chunks[0]);
 
@@ -1146,17 +1217,18 @@ fn render_form(f: &mut Frame, area: Rect, form: &FormState) {
     for (i, field) in form.fields.iter().enumerate() {
         let is_selected = i == form.selection;
         let title_style = if is_selected {
-            Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
-        lines.push(Line::from(vec![
-            Span::styled(format!("{}: ", field.input.title), title_style),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            format!("{}: ", field.input.title),
+            title_style,
+        )]));
         let value = match field.input.input_type {
-            InputType::Boolean => {
-                if field.checked { "[x]" } else { "[ ]" }.to_string()
-            }
+            InputType::Boolean => if field.checked { "[x]" } else { "[ ]" }.to_string(),
             _ => {
                 if field.value.is_empty() {
                     field.input.title.clone()
@@ -1170,14 +1242,19 @@ fn render_form(f: &mut Frame, area: Rect, form: &FormState) {
         } else {
             Style::default().fg(Color::Gray)
         };
-        lines.push(Line::from(vec![
-            Span::styled(format!("  {}", value), value_style),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            format!("  {}", value),
+            value_style,
+        )]));
         lines.push(Line::from(""));
     }
 
     let content = Paragraph::new(Text::from(lines))
-        .block(Block::default().borders(Borders::ALL).title(Line::from(form.title.clone())))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(Line::from(form.title.clone())),
+        )
         .wrap(Wrap { trim: true });
     f.render_widget(content, chunks[0]);
 
@@ -1206,7 +1283,11 @@ fn render_runner(f: &mut Frame, area: Rect, runner: &RunnerPage) {
         Span::styled("> ", Style::default().fg(Color::Cyan)),
         Span::raw(query_display),
     ]))
-    .block(Block::default().borders(Borders::ALL).title(Line::from(" Extension ")));
+    .block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(Line::from(" Extension ")),
+    );
     f.render_widget(search, chunks[0]);
 
     let tui_items: Vec<TuiListItem> = runner
@@ -1217,7 +1298,9 @@ fn render_runner(f: &mut Frame, area: Rect, runner: &RunnerPage) {
             let item = &runner.items[*idx];
             let is_selected = i == runner.selection;
             let style = if is_selected {
-                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default()
             };

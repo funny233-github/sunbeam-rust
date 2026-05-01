@@ -108,8 +108,7 @@ pub fn load(config_path: &PathBuf) -> Result<Config> {
     let bytes = std::fs::read(config_path)
         .with_context(|| format!("failed to read config: {}", config_path.display()))?;
 
-    crate::schemas::validate_config(&bytes)
-        .context("invalid config")?;
+    crate::schemas::validate_config(&bytes).context("invalid config")?;
 
     let mut config: Config = serde_json::from_slice(&bytes)?;
     config.path = config_path.clone();

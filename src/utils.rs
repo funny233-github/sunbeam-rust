@@ -56,13 +56,9 @@ pub fn find_pager() -> String {
 /// spawned.
 pub fn open_target(target: &str) -> Result<()> {
     let result = if cfg!(target_os = "macos") {
-        Command::new("nohup")
-            .args(["open", target])
-            .spawn()
+        Command::new("nohup").args(["open", target]).spawn()
     } else {
-        Command::new("nohup")
-            .args(["xdg-open", target])
-            .spawn()
+        Command::new("nohup").args(["xdg-open", target]).spawn()
     };
 
     match result {

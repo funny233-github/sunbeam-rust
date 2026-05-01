@@ -27,8 +27,7 @@ pub fn is_remote(origin: &str) -> bool {
 /// Used to derive the cache directory name for an extension.
 pub fn hash_origin(origin: &str) -> Result<String> {
     let origin = if !is_remote(origin) {
-        let abs = std::fs::canonicalize(origin)
-            .unwrap_or_else(|_| PathBuf::from(origin));
+        let abs = std::fs::canonicalize(origin).unwrap_or_else(|_| PathBuf::from(origin));
         abs.to_string_lossy().to_string()
     } else {
         origin.to_string()
@@ -40,14 +39,12 @@ pub fn hash_origin(origin: &str) -> Result<String> {
 }
 
 fn download_entrypoint(origin: &str, target: &Path) -> Result<()> {
-    let resp = reqwest::blocking::get(origin)
-        .context("failed to download extension")?;
+    let resp = reqwest::blocking::get(origin).context("failed to download extension")?;
     if !resp.status().is_success() {
         anyhow::bail!("failed to download extension: {}", resp.status());
     }
     let bytes = resp.bytes().context("failed to read response body")?;
-    std::fs::write(target, &bytes)
-        .context("failed to write entrypoint")?;
+    std::fs::write(target, &bytes).context("failed to write entrypoint")?;
     set_executable(target)?;
     Ok(())
 }
@@ -117,8 +114,7 @@ fn extract_manifest(entrypoint: &Path) -> Result<Manifest> {
         anyhow::bail!("command failed: {}", stripped);
     }
 
-    crate::schemas::validate_manifest(&output.stdout)
-        .context("invalid manifest")?;
+    crate::schemas::validate_manifest(&output.stdout).context("invalid manifest")?;
 
     let manifest: Manifest = serde_json::from_slice(&output.stdout)?;
     Ok(manifest)
@@ -159,7 +155,10 @@ pub fn load_extension(origin: &str) -> Result<Extension> {
         cache_manifest(&entrypoint, &manifest_path)?
     };
 
-    Ok(Extension { manifest, entrypoint })
+    Ok(Extension {
+        manifest,
+        entrypoint,
+    })
 }
 
 /// Re-downloads the entrypoint and re-extracts the manifest for an extension.
@@ -218,10 +217,7 @@ impl Extension {
     /// Returns an error if a required preference or parameter has no value and
     /// no default.
     pub fn cmd(&self, input: &Payload) -> Result<Command> {
-        let mut prefs = input
-            .preferences
-            .clone()
-            .unwrap_or_default();
+        let mut prefs = input.preferences.clone().unwrap_or_default();
         for pref in self.manifest.preferences.iter().flatten() {
             if !prefs.contains_key(&pref.name) {
                 if pref.optional.unwrap_or(false) {
@@ -234,13 +230,11 @@ impl Extension {
             }
         }
 
-        let command_spec = self.command(&input.command)
+        let command_spec = self
+            .command(&input.command)
             .ok_or_else(|| anyhow::anyhow!("command {} not found", input.command))?;
 
-        let mut params = input
-            .params
-            .clone()
-            .unwrap_or_default();
+        let mut params = input.params.clone().unwrap_or_default();
         for param in command_spec.params.iter().flatten() {
             if !params.contains_key(&param.name) {
                 if param.optional.unwrap_or(false) {
@@ -265,9 +259,7 @@ impl Extension {
         let dir = self.entrypoint.parent().unwrap_or(Path::new("."));
 
         let mut cmd = Command::new(&self.entrypoint);
-        cmd.arg(&payload_json)
-            .current_dir(dir)
-            .env("SUNBEAM", "1");
+        cmd.arg(&payload_json).current_dir(dir).env("SUNBEAM", "1");
         Ok(cmd)
     }
 
