@@ -20,37 +20,32 @@ use crate::extensions;
 use crate::history::History;
 use crate::types::*;
 
-#[derive(Clone)]
 #[allow(dead_code)]
+#[derive(Clone)]
 struct FilterItem {
     item: ListItem,
     filter_text: String,
 }
 
+/// Central application state for the TUI event loop.
 struct AppState {
-    // root list
     items: Vec<FilterItem>,
     filtered_items: Vec<usize>,
     selection: usize,
     query: String,
 
-    // actions bar
     actions: Vec<Action>,
     action_selection: usize,
     action_mode: bool,
 
-    // pagination stack
     page_stack: Vec<Page>,
 
-    // config
     config_path: PathBuf,
     config: Config,
     history: History,
 
-    // form
     form: Option<FormState>,
 
-    // detail view
     detail: Option<PageDetail>,
 
     notification: String,
@@ -69,8 +64,8 @@ struct PageDetail {
     action_mode: bool,
 }
 
-#[derive(Clone)]
 #[allow(dead_code)]
+#[derive(Clone)]
 struct FormState {
     title: String,
     fields: Vec<FormField>,
@@ -87,16 +82,16 @@ struct FormField {
     checked: bool,
 }
 
-#[derive(Clone)]
 #[allow(dead_code)]
+#[derive(Clone)]
 enum Page {
     Root,
     Detail(PageDetail),
     Runner(RunnerPage),
 }
 
-#[derive(Clone)]
 #[allow(dead_code)]
+#[derive(Clone)]
 struct RunnerPage {
     extension_origin: String,
     command_name: String,
@@ -114,6 +109,11 @@ struct RunnerPage {
     auto_refresh: Option<i32>,
 }
 
+/// Computes a fuzzy match score between `text` and `pattern`.
+///
+/// Returns a positive score when all characters of `pattern` appear in `text`
+/// in order (not necessarily contiguously). Consecutive matches score higher.
+/// Case-sensitive search is used when `pattern` contains uppercase letters.
 fn fuzzy_score(text: &str, pattern: &str) -> i32 {
     if pattern.is_empty() {
         return 1;
@@ -155,6 +155,9 @@ fn fuzzy_score(text: &str, pattern: &str) -> i32 {
     if pi == chars.len() { score.max(1) } else { 0 }
 }
 
+/// Filters and scores items against a query string.
+///
+/// Returns indices into `items` sorted by descending score.
 fn filter_items(items: &[FilterItem], query: &str) -> Vec<(usize, i32)> {
     if query.is_empty() {
         return items.iter().enumerate().map(|(i, _)| (i, i32::MAX)).collect();
@@ -171,6 +174,19 @@ fn filter_items(items: &[FilterItem], query: &str) -> Vec<(usize, i32)> {
     scored
 }
 
+/// Launches the root list TUI.
+///
+/// The root list shows all oneliners and extension commands. The user can
+/// search, select items, and trigger actions.
+///
+/// # Example
+/// ```
+/// tui::run_root_list("Sunbeam", &config_path, &mut history, cfg, items)?;
+/// ```
+///
+/// # Errors
+/// Returns an error if the terminal cannot be initialised or the event loop
+/// encounters an I/O error.
 pub fn run_root_list(
     title: &str,
     config_path: &Path,
@@ -236,6 +252,10 @@ pub fn run_root_list(
     run_app(app, title)
 }
 
+/// Launches a TUI form for configuring an extension's preferences.
+///
+/// # Errors
+/// Returns an error if the terminal cannot be initialised.
 pub fn run_form(alias: &str, cfg: &mut Config, ext_cfg: ExtensionConfig, inputs: Vec<Input>) -> Result<()> {
     let fields: Vec<FormField> = inputs
         .into_iter()
@@ -282,6 +302,7 @@ pub fn run_form(alias: &str, cfg: &mut Config, ext_cfg: ExtensionConfig, inputs:
     run_app(app, "Configure Extension")
 }
 
+/// Initialises the terminal and runs the TUI event loop.
 fn run_app(mut app: AppState, title: &str) -> Result<()> {
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -301,6 +322,7 @@ fn run_app(mut app: AppState, title: &str) -> Result<()> {
     result
 }
 
+/// The main event loop: draws frames and processes keyboard input.
 fn run_event_loop(
     terminal: &mut ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
     app: &mut AppState,
@@ -344,12 +366,13 @@ fn run_event_loop(
         }
     }
 
-    // Save history on exit
     app.history.save().ok();
-
     Ok(())
 }
 
+/// Processes a single keyboard event and mutates the application state.
+///
+/// Returns `false` when the application should exit.
 fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
     match key.code {
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -410,7 +433,6 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 }
                 let action = item_actions[0].clone();
 
-                // Update history for this item
                 let key = item.item.id.as_deref().unwrap_or(&item.item.title).to_string();
                 app.history.update(&key);
 
@@ -491,7 +513,6 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
         KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             if let Ok(new_cfg) = crate::config::load(&app.config_path) {
                 app.config = new_cfg;
-                // Rebuild items
                 let mut new_items = Vec::new();
                 if let Some(oneliners) = &app.config.oneliners {
                     for o in oneliners {
@@ -601,8 +622,8 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
     Ok(true)
 }
 
+/// Returns the actions for the currently selected item or page.
 fn get_current_list_actions(app: &AppState) -> Vec<Action> {
-    // Check current page
     if let Some(Page::Runner(runner)) = app.page_stack.last() {
         let idx = runner.filtered_items.get(runner.selection).copied().unwrap_or(0);
         if let Some(item) = runner.items.get(idx) {
@@ -611,7 +632,6 @@ fn get_current_list_actions(app: &AppState) -> Vec<Action> {
         return runner.actions.clone();
     }
 
-    // Root page
     let idx = app.filtered_items.get(app.selection).copied().unwrap_or(0);
     if let Some(item) = app.items.get(idx) {
         return item.item.actions.as_ref().cloned().unwrap_or_default();
@@ -619,11 +639,16 @@ fn get_current_list_actions(app: &AppState) -> Vec<Action> {
     app.actions.clone()
 }
 
+/// Returns the action currently selected in the action bar.
 fn get_selected_action(app: &AppState) -> Option<Action> {
     let actions = get_current_list_actions(app);
     actions.get(app.action_selection).cloned()
 }
 
+/// Dispatches an action: executes the behaviour associated with the action type.
+///
+/// Handles `Run`, `Copy`, `Open`, `Edit`, `Exec`, `Exit`, `Reload`, and
+/// `Config` action types. Returns `false` when the application should exit.
 fn dispatch_action(app: &mut AppState, action: Action) -> Result<bool> {
     match action.action_type {
         ActionType::Run => {
@@ -705,9 +730,6 @@ fn dispatch_action(app: &mut AppState, action: Action) -> Result<bool> {
                     .args(["-c", &format!("{} {}", editor, edit.path)])
                     .status();
                 terminal::enable_raw_mode()?;
-                if edit.reload.unwrap_or(false) {
-                    // Reload current page
-                }
                 if edit.exit.unwrap_or(false) {
                     return Ok(false);
                 }
@@ -752,9 +774,7 @@ fn dispatch_action(app: &mut AppState, action: Action) -> Result<bool> {
         ActionType::Exit => {
             return Ok(false);
         }
-        ActionType::Reload => {
-            // handled by the runner page
-        }
+        ActionType::Reload => {}
         ActionType::Config => {
             if let Some(config_action) = action.config {
                 let alias = config_action.extension;
@@ -803,6 +823,8 @@ fn dispatch_action(app: &mut AppState, action: Action) -> Result<bool> {
     Ok(true)
 }
 
+/// Runs an extension command in `search` or `filter` mode, embedding the
+/// returned list as a new page in the stack.
 fn run_extension_list(
     app: &mut AppState,
     extension: extensions::Extension,
@@ -854,6 +876,7 @@ fn run_extension_list(
     Ok(true)
 }
 
+/// Runs an extension command in `detail` mode and shows the result.
 fn run_extension_detail(
     app: &mut AppState,
     extension: extensions::Extension,
@@ -877,6 +900,7 @@ fn run_extension_detail(
     Ok(true)
 }
 
+/// Runs an extension command and parses the output as a `List`.
 fn run_extension_and_parse(
     extension: &extensions::Extension,
     payload: &Payload,
@@ -888,6 +912,7 @@ fn run_extension_and_parse(
     Ok(list)
 }
 
+/// Runs an extension command and parses the output as a `Detail`.
 fn run_extension_and_parse_detail(
     extension: &extensions::Extension,
     payload: &Payload,
@@ -899,6 +924,7 @@ fn run_extension_and_parse_detail(
     Ok(detail)
 }
 
+/// Collects form field values and persists the updated preferences to config.
 fn submit_form(app: &mut AppState, form: FormState) -> Result<bool> {
     let mut values = serde_json::Map::new();
     for field in &form.fields {
@@ -923,6 +949,9 @@ fn submit_form(app: &mut AppState, form: FormState) -> Result<bool> {
     Ok(true)
 }
 
+// ─── Rendering functions ──────────────────────────────────────────────────
+
+/// Top-level renderer that dispatches to the appropriate view.
 fn render(f: &mut Frame, app: &AppState) {
     let area = f.area();
 
@@ -936,7 +965,6 @@ fn render(f: &mut Frame, app: &AppState) {
         return;
     }
 
-    // Check if we're on a runner page
     if let Some(Page::Runner(runner)) = app.page_stack.last() {
         render_runner(f, area, runner);
         return;
@@ -945,6 +973,7 @@ fn render(f: &mut Frame, app: &AppState) {
     render_root_list(f, area, app);
 }
 
+/// Renders the root list with search bar, item list, and action bar.
 fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -955,7 +984,6 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
         ])
         .split(area);
 
-    // Search bar
     let search_style = if app.action_mode {
         Style::default().fg(Color::Yellow)
     } else {
@@ -978,7 +1006,6 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
     .block(Block::default().borders(Borders::ALL).title(Line::from(" Sunbeam ")));
     f.render_widget(search, chunks[0]);
 
-    // Items list
     let tui_items: Vec<TuiListItem> = app
         .filtered_items
         .iter()
@@ -1016,7 +1043,6 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
     let list_widget = list.block(list_block);
     f.render_widget(list_widget, chunks[1]);
 
-    // Status bar / actions
     let actions = get_current_list_actions(app);
     let action_text = if actions.is_empty() {
         " No actions".to_string()
@@ -1063,6 +1089,7 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
     f.render_widget(status, chunks[2]);
 }
 
+/// Renders a detail page with optional action bar.
 fn render_detail(f: &mut Frame, area: Rect, detail: &PageDetail) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -1112,6 +1139,7 @@ fn render_detail(f: &mut Frame, area: Rect, detail: &PageDetail) {
     f.render_widget(status, chunks[1]);
 }
 
+/// Renders a preference configuration form.
 fn render_form(f: &mut Frame, area: Rect, form: &FormState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -1162,6 +1190,7 @@ fn render_form(f: &mut Frame, area: Rect, form: &FormState) {
     f.render_widget(status, chunks[1]);
 }
 
+/// Renders an extension runner page (search or filter mode).
 fn render_runner(f: &mut Frame, area: Rect, runner: &RunnerPage) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -1172,7 +1201,6 @@ fn render_runner(f: &mut Frame, area: Rect, runner: &RunnerPage) {
         ])
         .split(area);
 
-    // Search
     let query_display = if runner.query.is_empty() {
         "Search Items..."
     } else {
@@ -1220,7 +1248,6 @@ fn render_runner(f: &mut Frame, area: Rect, runner: &RunnerPage) {
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(list, chunks[1]);
 
-    // Actions
     let actions = &runner.actions;
     let action_text = if actions.is_empty() {
         " No actions".to_string()

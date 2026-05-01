@@ -1,8 +1,8 @@
 use std::io::Read;
 
 use anyhow::{Context, Result};
-use clap::{ArgMatches, Command, Arg, ArgAction};
 use arboard::Clipboard;
+use clap::{Arg, ArgAction, ArgMatches, Command};
 
 use crate::config::{self, Config, ExtensionConfig, Oneliner};
 use crate::extensions;
@@ -11,6 +11,7 @@ use crate::types::{self, Action, ActionType, CopyAction, EditAction, ExecAction,
 use crate::utils;
 use crate::tui;
 
+/// Builds the top-level CLI definition with all subcommands.
 pub fn build_cli() -> Command {
     Command::new("sunbeam")
         .about("Command Line Launcher")
@@ -116,6 +117,7 @@ pub fn build_cli() -> Command {
         )
 }
 
+/// Default sunbeam.json content used when no config file exists.
 fn default_config_bytes() -> &'static [u8] {
     br#"{
     "oneliners": [
@@ -125,11 +127,17 @@ fn default_config_bytes() -> &'static [u8] {
 }"#
 }
 
+/// Returns `true` when the `SUNBEAM` environment variable is set (i.e. the
+/// current process was spawned by another sunbeam process).
 #[allow(dead_code)]
 fn is_sunbeam_running() -> bool {
     std::env::var("SUNBEAM").is_ok()
 }
 
+/// Loads the config, creating a default one if the file does not exist.
+///
+/// # Panics
+/// Exits the process on error.
 fn load_config_or_default() -> Config {
     let config_path = config::resolve_config_path();
     if !config_path.exists() {
@@ -148,6 +156,15 @@ fn load_config_or_default() -> Config {
     })
 }
 
+/// Entry point: parses CLI arguments and dispatches to the appropriate handler.
+///
+/// # Example
+/// ```
+/// cli::run()?; // equivalent to `sunbeam [subcommand]`
+/// ```
+///
+/// # Errors
+/// Propagates errors from the dispatched subcommand.
 pub fn run() -> Result<()> {
     let cli = build_cli();
     let matches = cli.get_matches();
@@ -165,6 +182,10 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
+/// Handles `sunbeam validate <list|detail|manifest|config>`.
+///
+/// Reads JSON from stdin (or a file for `validate config`) and validates it
+/// against the corresponding JSON Schema.
 fn run_validate(matches: &ArgMatches) -> Result<()> {
     match matches.subcommand() {
         Some(("list", _)) => {
@@ -210,32 +231,33 @@ fn run_validate(matches: &ArgMatches) -> Result<()> {
     Ok(())
 }
 
+/// Handles `sunbeam edit [file]`.
+///
+/// Opens the specified file, or the config file (`--config`), or creates a temp
+/// file pre-populated from stdin and outputs the edited result.
 fn run_edit(matches: &ArgMatches) -> Result<()> {
     let edit_config = matches.get_flag("config");
     let extension = matches.get_one::<String>("extension");
 
     if let Some(file) = matches.get_one::<String>("file") {
         let editor = utils::find_editor();
-        let status = std::process::Command::new("sh")
+        std::process::Command::new("sh")
             .args(["-c", &format!("{} {}", editor, file)])
-            .status()?;
-        if !status.success() {
-            anyhow::bail!("editor exited with error");
-        }
+            .status()
+            .context("editor exited with error")?;
         return Ok(());
     }
 
     if edit_config {
         let config_path = config::resolve_config_path();
         let editor = utils::find_editor();
-        let status = std::process::Command::new("sh")
+        std::process::Command::new("sh")
             .args(["-c", &format!("{} {}", editor, config_path.display())])
-            .status()?;
-        if !status.success() {
-            anyhow::bail!("editor exited with error");
-        }
+            .status()
+            .context("editor exited with error")?;
         return Ok(());
     }
+
     let temp_dir = tempfile::tempdir()?;
     let ext_str = extension.map(|s| s.as_str()).unwrap_or("");
     let file_name = if ext_str.is_empty() {
@@ -258,21 +280,20 @@ fn run_edit(matches: &ArgMatches) -> Result<()> {
         .read(true)
         .write(true)
         .open("/dev/tty")?;
-    let status = std::process::Command::new("sh")
+    std::process::Command::new("sh")
         .args(["-c", &format!("{} {}", editor, temp_path.display())])
         .stdin(tty)
         .stdout(std::process::Stdio::inherit())
         .stderr(std::process::Stdio::inherit())
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("editor exited with error");
-    }
+        .status()
+        .context("editor exited with error")?;
 
     let content = std::fs::read_to_string(&temp_path)?;
     print!("{}", content);
     Ok(())
 }
 
+/// Handles `sunbeam copy`: reads stdin and copies it to the clipboard.
 fn run_copy() -> Result<()> {
     let mut input = String::new();
     std::io::stdin().read_to_string(&mut input)?;
@@ -281,6 +302,7 @@ fn run_copy() -> Result<()> {
     Ok(())
 }
 
+/// Handles `sunbeam paste`: reads clipboard content and writes to stdout.
 fn run_paste() -> Result<()> {
     let mut clipboard = Clipboard::new()?;
     let text = clipboard.get_text()?;
@@ -288,11 +310,13 @@ fn run_paste() -> Result<()> {
     Ok(())
 }
 
+/// Handles `sunbeam open <target>`.
 fn run_open(matches: &ArgMatches) -> Result<()> {
     let target = matches.get_one::<String>("target").unwrap();
     utils::open_target(target)
 }
 
+/// Dispatches all `sunbeam extension <subcommand>` actions.
 fn run_extension(matches: &ArgMatches) -> Result<()> {
     let mut cfg = load_config_or_default();
 
@@ -411,18 +435,20 @@ fn run_extension(matches: &ArgMatches) -> Result<()> {
             }
             let path = cfg.resolve(&ext_cfg.origin);
             let editor = utils::find_editor();
-            let status = std::process::Command::new("sh")
+            std::process::Command::new("sh")
                 .args(["-c", &format!("{} {}", editor, path.display())])
-                .status()?;
-            if !status.success() {
-                anyhow::bail!("editor exited with error");
-            }
+                .status()
+                .context("editor exited with error")?;
         }
         _ => unreachable!(),
     }
     Ok(())
 }
 
+/// Handles the default case (no subcommand, or piped output).
+///
+/// If stdout is not a TTY, the config is printed as JSON. Otherwise the TUI
+/// root list is launched.
 fn run_root() -> Result<()> {
     let cfg = load_config_or_default();
 
@@ -440,6 +466,7 @@ fn run_root() -> Result<()> {
     tui::run_root_list("Sunbeam", &config_path, &mut history, cfg, items)
 }
 
+/// Converts `Oneliner` config entries into `ListItem`s for the root list.
 fn oneliner_list_items(oneliners: &[Oneliner]) -> Vec<ListItem> {
     oneliners.iter().map(|o| ListItem {
         id: Some(format!("oneliner - {}", o.title)),
@@ -484,6 +511,7 @@ fn oneliner_list_items(oneliners: &[Oneliner]) -> Vec<ListItem> {
     }).collect()
 }
 
+/// Converts an installed extension and its commands into `ListItem`s.
 fn extension_list_items(alias: &str, extension: &extensions::Extension, ext_cfg: &ExtensionConfig) -> Vec<ListItem> {
     let mut items = Vec::new();
 
@@ -592,6 +620,7 @@ fn extension_list_items(alias: &str, extension: &extensions::Extension, ext_cfg:
     items
 }
 
+/// Builds the full list of root items from oneliners and all installed extensions.
 fn build_root_items(cfg: &Config) -> Vec<ListItem> {
     let mut items = Vec::new();
 

@@ -49,18 +49,34 @@ fn validate(schema: &JSONSchema, input: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Validates a JSON byte slice against the list schema.
+///
+/// # Errors
+/// Returns an error if the JSON is malformed or does not conform to the schema.
 pub fn validate_list(input: &[u8]) -> Result<()> {
     validate(&instance().list, input)
 }
 
+/// Validates a JSON byte slice against the detail schema.
+///
+/// # Errors
+/// Returns an error if the JSON is malformed or does not conform to the schema.
 pub fn validate_detail(input: &[u8]) -> Result<()> {
     validate(&instance().detail, input)
 }
 
+/// Validates a JSON byte slice against the manifest schema.
+///
+/// # Errors
+/// Returns an error if the JSON is malformed or does not conform to the schema.
 pub fn validate_manifest(input: &[u8]) -> Result<()> {
     validate(&instance().manifest, input)
 }
 
+/// Validates a JSON byte slice against the config schema.
+///
+/// # Errors
+/// Returns an error if the JSON is malformed or does not conform to the schema.
 pub fn validate_config(input: &[u8]) -> Result<()> {
     validate(&instance().config, input)
 }

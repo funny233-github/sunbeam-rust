@@ -8,16 +8,23 @@ use crate::config;
 use crate::types::{CommandSpec, Manifest, Payload};
 use crate::utils;
 
+/// A loaded extension with its parsed manifest and entrypoint path.
 #[derive(Debug, Clone)]
 pub struct Extension {
+    /// Parsed manifest from running the script with no arguments.
     pub manifest: Manifest,
+    /// Absolute path to the executable entrypoint script.
     pub entrypoint: PathBuf,
 }
 
+/// Returns `true` if `origin` starts with `http://` or `https://`.
 pub fn is_remote(origin: &str) -> bool {
     origin.starts_with("http://") || origin.starts_with("https://")
 }
 
+/// Computes a SHA-1 hash of the normalized origin string.
+///
+/// Used to derive the cache directory name for an extension.
 pub fn hash_origin(origin: &str) -> Result<String> {
     let origin = if !is_remote(origin) {
         let abs = std::fs::canonicalize(origin)
@@ -54,6 +61,10 @@ fn set_executable(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Resolves the entrypoint path for an extension origin.
+///
+/// For remote URLs the script is downloaded and cached. For local paths the
+/// path is resolved relative to the config file directory or the home directory.
 pub fn load_entrypoint(origin: &str, extension_dir: &Path) -> Result<PathBuf> {
     if is_remote(origin) {
         let url = url::Url::parse(origin)?;
@@ -89,6 +100,7 @@ pub fn load_entrypoint(origin: &str, extension_dir: &Path) -> Result<PathBuf> {
     }
 }
 
+/// Runs the extension entrypoint with no arguments to extract its manifest.
 fn extract_manifest(entrypoint: &Path) -> Result<Manifest> {
     set_executable(entrypoint)?;
 
@@ -112,6 +124,7 @@ fn extract_manifest(entrypoint: &Path) -> Result<Manifest> {
     Ok(manifest)
 }
 
+/// Runs the entrypoint to extract the manifest and writes it to the cache file.
 fn cache_manifest(entrypoint: &Path, manifest_path: &Path) -> Result<Manifest> {
     let manifest = extract_manifest(entrypoint)?;
     if let Some(parent) = manifest_path.parent() {
@@ -122,6 +135,11 @@ fn cache_manifest(entrypoint: &Path, manifest_path: &Path) -> Result<Manifest> {
     Ok(manifest)
 }
 
+/// Loads an extension from its origin string.
+///
+/// The entrypoint is resolved (downloaded if remote) and the manifest is
+/// extracted and cached. If a cached manifest exists and is newer than the
+/// entrypoint, the cached version is used.
 pub fn load_extension(origin: &str) -> Result<Extension> {
     let hash = hash_origin(origin)?;
     let extension_dir = utils::cache_dir().join("extensions").join(&hash);
@@ -144,6 +162,7 @@ pub fn load_extension(origin: &str) -> Result<Extension> {
     Ok(Extension { manifest, entrypoint })
 }
 
+/// Re-downloads the entrypoint and re-extracts the manifest for an extension.
 pub fn upgrade(extension_config: &config::ExtensionConfig) -> Result<()> {
     let hash = hash_origin(&extension_config.origin)?;
     let extension_dir = utils::cache_dir().join("extensions").join(&hash);
@@ -175,10 +194,12 @@ pub fn upgrade(extension_config: &config::ExtensionConfig) -> Result<()> {
 }
 
 impl Extension {
+    /// Looks up a command spec by name.
     pub fn command(&self, name: &str) -> Option<&CommandSpec> {
         self.manifest.commands.iter().find(|c| c.name == name)
     }
 
+    /// Returns all non-hidden commands (shown in the root list).
     pub fn root_commands(&self) -> Vec<&CommandSpec> {
         self.manifest
             .commands
@@ -187,6 +208,15 @@ impl Extension {
             .collect()
     }
 
+    /// Builds a `std::process::Command` that will invoke the extension with
+    /// the given payload as a JSON argument.
+    ///
+    /// Missing required preferences and parameters cause an error. Missing
+    /// optional ones are filled with their declared defaults.
+    ///
+    /// # Errors
+    /// Returns an error if a required preference or parameter has no value and
+    /// no default.
     pub fn cmd(&self, input: &Payload) -> Result<Command> {
         let mut prefs = input
             .preferences
@@ -241,6 +271,10 @@ impl Extension {
         Ok(cmd)
     }
 
+    /// Runs the extension and captures its stdout.
+    ///
+    /// # Errors
+    /// Returns an error if the extension process fails or exits with non-zero.
     pub fn run(&self, input: &Payload) -> Result<Vec<u8>> {
         let mut cmd = self.cmd(input)?;
         let output = cmd.output()?;
@@ -252,10 +286,12 @@ impl Extension {
         Ok(output.stdout)
     }
 
+    /// Runs the extension and discards the output.
+    ///
+    /// # Errors
+    /// Delegates to [`Extension::run`].
     pub fn run_quiet(&self, input: &Payload) -> Result<()> {
         self.run(input)?;
         Ok(())
     }
 }
-
-
