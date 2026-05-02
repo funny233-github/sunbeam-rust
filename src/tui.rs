@@ -512,34 +512,6 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
             }
         }
 
-        // ── j / k (Vim-style navigation) ────────────────────────────────
-        // Down / up. Works in both list mode and action mode.
-        // j/k are matched before the generic KeyCode::Char(c) catch-all so
-        // they are NOT treated as search characters.
-        KeyCode::Char('k') => {
-            if app.action_mode {
-                if app.action_selection > 0 {
-                    app.action_selection -= 1;
-                }
-                return Ok(true);
-            }
-            if app.selection > 0 {
-                app.selection -= 1;
-            }
-        }
-        KeyCode::Char('j') => {
-            if app.action_mode {
-                let actions = get_current_list_actions(app);
-                if app.action_selection + 1 < actions.len() {
-                    app.action_selection += 1;
-                }
-                return Ok(true);
-            }
-            if app.selection + 1 < app.filtered_items.len() {
-                app.selection += 1;
-            }
-        }
-
         // ── Backspace / Ctrl+Backspace ───────────────────────────────────
         // Backspace deletes the last character. Ctrl+Backspace (which the
         // terminal sends as ASCII 0x08, parsed by crossterm as Ctrl+H)
