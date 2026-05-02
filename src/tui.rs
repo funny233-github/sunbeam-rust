@@ -414,7 +414,16 @@ fn run_event_loop(
 /// arrow keys navigate actions instead of items, and Enter triggers the
 /// selected action instead of the default item action. Every handler checks
 /// `app.action_mode` first so the two modes share the same keybindings.
+///
+/// When a `Page::Runner` is on top of `page_stack`, all keyboard input is
+/// redirected to the runner's own state (query, selection, filtered_items)
+/// instead of the root list's state.
 fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
+    let runner_page = app.page_stack.len() > 1
+        && matches!(app.page_stack.last(), Some(Page::Runner(_)));
+    if runner_page {
+        return handle_runner_key(app, key);
+    }
     match key.code {
         // ── Ctrl+C ──────────────────────────────────────────────────────
         // Standard terminal SIGINT. Always returns false → should_quit.
@@ -733,6 +742,91 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
         _ => {}
     }
     Ok(true)
+}
+
+/// Handles keyboard input when a runner page is active.
+///
+/// All state mutations go to the runner's own fields (query, selection,
+/// filtered_items, items) instead of the root AppState fields. The runner
+/// is removed from the page stack, mutated, then replaced.
+fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
+    let mut runner = match app.page_stack.pop() {
+        Some(Page::Runner(r)) => r,
+        _ => return Ok(true),
+    };
+
+    let result = match key.code {
+        KeyCode::Esc => {
+            // Pop back to the parent page (root or previous extension list).
+            // The runner is discarded — no need to push it back.
+            return Ok(true);
+        }
+        KeyCode::Enter => {
+            let idx = *runner.filtered_items.get(runner.selection).unwrap_or(&0);
+            if let Some(item) = runner.items.get(idx) {
+                let actions = item.item.actions.as_ref().cloned().unwrap_or_default();
+                if let Some(action) = actions.first().cloned() {
+                    let result = dispatch_action(app, action);
+                    // On success keep the runner on the stack unless the
+                    // action pushed a new page (quit, new runner, etc.).
+                    if let Ok(true) = result {
+                        app.page_stack.push(Page::Runner(runner));
+                    }
+                    return result;
+                }
+            }
+            true
+        }
+        KeyCode::Up => {
+            if runner.selection > 0 {
+                runner.selection -= 1;
+            }
+            true
+        }
+        KeyCode::Down => {
+            if runner.selection + 1 < runner.filtered_items.len() {
+                runner.selection += 1;
+            }
+            true
+        }
+        KeyCode::Backspace => {
+            runner.query.pop();
+            runner.filtered_items = filter_items(&runner.items, &runner.query)
+                .iter().map(|(i, _)| *i).collect();
+            if !runner.filtered_items.is_empty() {
+                runner.selection = 0;
+            }
+            true
+        }
+        KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            let trimmed = runner.query.trim_end().to_string();
+            let len = trimmed.len();
+            if let Some(pos) = trimmed[..len].rfind(char::is_whitespace) {
+                runner.query.truncate(pos + 1);
+            } else {
+                runner.query.clear();
+            }
+            runner.filtered_items = filter_items(&runner.items, &runner.query)
+                .iter().map(|(i, _)| *i).collect();
+            if !runner.filtered_items.is_empty() {
+                runner.selection = 0;
+            }
+            true
+        }
+        KeyCode::Char(c) => {
+            runner.query.push(c);
+            runner.filtered_items = filter_items(&runner.items, &runner.query)
+                .iter().map(|(i, _)| *i).collect();
+            if !runner.filtered_items.is_empty() {
+                runner.selection = 0;
+            }
+            true
+        }
+        _ => true,
+    };
+
+    app.page_stack.push(Page::Runner(runner));
+    Ok(result)
 }
 
 /// Returns the actions for the currently selected item or page.
