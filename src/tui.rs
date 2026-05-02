@@ -1112,17 +1112,17 @@ fn render(f: &mut Frame, app: &AppState) {
     let area = f.area();
 
     if let Some(ref detail) = app.detail {
-        render_detail(f, area, detail);
+        render_detail_page(f, area, detail);
         return;
     }
 
     if let Some(ref form) = app.form {
-        render_form(f, area, form);
+        render_prefs_form(f, area, form);
         return;
     }
 
     if let Some(Page::Runner(runner)) = app.page_stack.last() {
-        render_runner(f, area, runner);
+        render_extension_list(f, area, runner);
         return;
     }
 
@@ -1131,6 +1131,7 @@ fn render(f: &mut Frame, app: &AppState) {
 
 /// Renders the root list with search bar, item list, and action bar.
 fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
+    // Split screen vertically: search bar (3 rows) | list (remaining) | status bar (3 rows)
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -1140,6 +1141,10 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
         ])
         .split(area);
 
+    // ── Search bar ──────────────────────────────────────────────────
+    // When action_mode is active the prompt turns yellow and the
+    // placeholder changes from "Search Items..." to "Search Actions...",
+    // meaning keystrokes will filter the action list instead of items.
     let search_style = if app.action_mode {
         Style::default().fg(Color::Yellow)
     } else {
@@ -1198,6 +1203,10 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
         })
         .collect();
 
+    // ── Filtered item list ──────────────────────────────────────────
+    // Rendered via ratatui's List widget. Each row shows:
+    // selection indicator (> / space) + title + subtitle + accessories.
+    // The selected row is highlighted with magenta + bold.
     let list = TuiList::new(tui_items).direction(ListDirection::TopToBottom);
 
     let list_block = Block::default().borders(Borders::ALL);
@@ -1248,17 +1257,28 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
         action_text
     };
 
+    // ── Status / action bar ─────────────────────────────────────────
+    // Shows the primary action name + "Actions(tab)" hint by default.
+    // In action_mode it expands to a full action list with brackets
+    // around the selected action. Notifications (e.g. "Copied!") appear
+    // on the left and auto-dismiss after 1 second.
     let status = Paragraph::new(status_text).block(Block::default().borders(Borders::ALL));
     f.render_widget(status, chunks[2]);
 }
 
 /// Renders a detail page with optional action bar.
-fn render_detail(f: &mut Frame, area: Rect, detail: &PageDetail) {
+fn render_detail_page(f: &mut Frame, area: Rect, detail: &PageDetail) {
+    // Split vertically: content area | bottom action bar
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(3)])
         .split(area);
 
+    // ── Content area ────────────────────────────────────────────────
+    // The extension's Detail JSON can contain markdown or plain text.
+    // The original Go version renders markdown via glamour and word-wraps
+    // plain text. This simplified implementation uses raw Paragraph + Wrap.
+    // Content over 5000 characters is truncated.
     let detail_text: &str = if detail.markdown.is_empty() {
         "No content"
     } else {
@@ -1274,6 +1294,10 @@ fn render_detail(f: &mut Frame, area: Rect, detail: &PageDetail) {
         .wrap(Wrap { trim: true });
     f.render_widget(detail_widget, chunks[0]);
 
+    // ── Bottom action bar ───────────────────────────────────────────
+    // Same layout as render_root_list's status bar, but adds a "q: back"
+    // shortcut. When action_mode is active, actions expand into a
+    // selectable list; pressing Enter triggers the selected action.
     let action_text = if detail.actions.is_empty() {
         " q: back".to_string()
     } else if detail.action_mode {
@@ -1307,12 +1331,23 @@ fn render_detail(f: &mut Frame, area: Rect, detail: &PageDetail) {
 }
 
 /// Renders a preference configuration form.
-fn render_form(f: &mut Frame, area: Rect, form: &FormState) {
+fn render_prefs_form(f: &mut Frame, area: Rect, form: &FormState) {
+    // Split vertically: form fields | bottom hint
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(3)])
         .split(area);
 
+    // ── Form fields ─────────────────────────────────────────────────
+    // Three InputTypes are supported:
+    //   string  → single-line text
+    //   number  → single-line numeric
+    //   boolean → [x] / [ ] checkbox
+    //
+    // Each field renders as two lines: a bold label row and a value row.
+    // The focused field (is_selected) uses magenta+bold for the label and
+    // yellow for the value; unfocused fields use gray.
+    // Tab / Shift+Tab cycles focus, Alt+Enter submits.
     let mut lines = Vec::new();
     for (i, field) in form.fields.iter().enumerate() {
         let is_selected = i == form.selection;
@@ -1358,13 +1393,19 @@ fn render_form(f: &mut Frame, area: Rect, form: &FormState) {
         .wrap(Wrap { trim: true });
     f.render_widget(content, chunks[0]);
 
+    // ── Bottom hint ─────────────────────────────────────────────────
+    // Note: Alt+Enter is used instead of plain Enter because Enter has
+    // special meaning for some field types (e.g. toggling a checkbox).
     let status = Paragraph::new(" Tab: next  Alt+Enter: submit  Esc: cancel ")
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(status, chunks[1]);
 }
 
 /// Renders an extension runner page (search or filter mode).
-fn render_runner(f: &mut Frame, area: Rect, runner: &RunnerPage) {
+fn render_extension_list(f: &mut Frame, area: Rect, runner: &RunnerPage) {
+    // Same three-row layout as render_root_list: search bar | list | status bar.
+    // The key difference is the data source — the runner's data comes from the
+    // extension process's List JSON output, not from the config file.
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -1374,6 +1415,11 @@ fn render_runner(f: &mut Frame, area: Rect, runner: &RunnerPage) {
         ])
         .split(area);
 
+    // ── Search bar ──────────────────────────────────────────────────
+    // The title shows "Extension" instead of "Sunbeam" so the user knows
+    // they are not on the root page. In search mode every keystroke
+    // triggers a re-invocation of the extension (on_query_change).
+    // In filter mode only client-side fuzzy matching is performed.
     let query_display = if runner.query.is_empty() {
         "Search Items..."
     } else {
@@ -1422,11 +1468,19 @@ fn render_runner(f: &mut Frame, area: Rect, runner: &RunnerPage) {
         })
         .collect();
 
+    // ── Item list ───────────────────────────────────────────────────
+    // Identical layout to render_root_list's list section. No extra
+    // outer border is needed because the search bar block above already
+    // provides visual continuity.
     let list = TuiList::new(tui_items)
         .direction(ListDirection::TopToBottom)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(list, chunks[1]);
 
+    // ── Status bar ──────────────────────────────────────────────────
+    // Same action bar as the root list, but with a fixed "Esc: back"
+    // reminder so the user knows they can return to the previous page
+    // (the root list or a parent extension list).
     let actions = &runner.actions;
     let action_text = if actions.is_empty() {
         " No actions".to_string()
