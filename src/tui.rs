@@ -406,32 +406,60 @@ fn run_event_loop(
 /// Processes a single keyboard event and mutates the application state.
 ///
 /// Returns `false` when the application should exit.
+///
+/// ## Key design
+///
+/// The TUI has two focus modes — **list mode** (default) and **action mode**
+/// (activated by Tab). In action mode the search bar becomes an action filter,
+/// arrow keys navigate actions instead of items, and Enter triggers the
+/// selected action instead of the default item action. Every handler checks
+/// `app.action_mode` first so the two modes share the same keybindings.
 fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
     match key.code {
+        // ── Ctrl+C ──────────────────────────────────────────────────────
+        // Standard terminal SIGINT. Always returns false → should_quit.
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             return Ok(false);
         }
+
+        // ── Escape ──────────────────────────────────────────────────────
+        // Context-sensitive back-out: closes the innermost overlay first,
+        // then the current page, then the whole app.
+        //
+        // Order: action mode → detail overlay → form overlay → runner page
+        // → quit. This lets the user "drill up" one step at a time.
         KeyCode::Esc => {
+            // Action mode active → deactivate it (back to list, keep current page)
             if app.action_mode {
                 app.action_mode = false;
                 app.action_selection = 0;
                 return Ok(true);
             }
+            // Detail overlay visible → close it
             if app.detail.is_some() {
                 app.detail = None;
                 return Ok(true);
             }
+            // Form overlay visible → close it
             if app.form.is_some() {
                 app.form = None;
                 return Ok(true);
             }
+            // Inside a runner page → pop back to parent
             if app.page_stack.len() > 1 {
                 app.page_stack.pop();
                 return Ok(true);
             }
+            // Root page with no overlay → quit
             return Ok(false);
         }
+
+        // ── Enter ───────────────────────────────────────────────────────
+        // Triggers the primary action for the current context. Priority:
+        // action mode (selected action) → form (submit) → detail (first action)
+        // → list item (first action, and record usage history).
         KeyCode::Enter => {
+            // Action mode: execute the highlighted action
             if app.action_mode {
                 let action = get_selected_action(app);
                 if let Some(action) = action {
@@ -439,11 +467,13 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 }
                 return Ok(true);
             }
+            // Form mode: collect field values and submit
             if app.form.is_some() {
                 let form = app.form.take().unwrap();
                 let result = submit_form(app, form);
                 return result;
             }
+            // Detail mode: trigger the first (or selected) action
             if let Some(ref detail) = app.detail.clone() {
                 if detail.actions.is_empty() {
                     return Ok(true);
@@ -459,6 +489,9 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 app.detail.as_mut().unwrap().action_mode = false;
                 return dispatch_action(app, action);
             }
+            // List mode: execute the selected item's first action;
+            // record the selection in MRU history so frequently-used
+            // items float to the top.
             let idx = *app.filtered_items.get(app.selection).unwrap_or(&0);
             if let Some(item) = app.items.get(idx) {
                 let item_actions = item.item.actions.as_ref().cloned().unwrap_or_default();
@@ -478,6 +511,11 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 return dispatch_action(app, action);
             }
         }
+
+        // ── j / k (Vim-style navigation) ────────────────────────────────
+        // Down / up. Works in both list mode and action mode.
+        // j/k are matched before the generic KeyCode::Char(c) catch-all so
+        // they are NOT treated as search characters.
         KeyCode::Char('k') => {
             if app.action_mode {
                 if app.action_selection > 0 {
@@ -501,6 +539,13 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 app.selection += 1;
             }
         }
+
+        // ── Backspace / Ctrl+Backspace ───────────────────────────────────
+        // Backspace deletes the last character. Ctrl+Backspace (which the
+        // terminal sends as ASCII 0x08, parsed by crossterm as Ctrl+H)
+        // deletes the last word (trims trailing whitespace, then truncates
+        // at the previous whitespace boundary). After deletion, the item
+        // list is re-filtered and the cursor resets to the top.
         KeyCode::Backspace => {
             if app.action_mode {
                 app.query.pop();
@@ -515,6 +560,12 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 app.selection = 0;
             }
         }
+
+        // ── Tab ─────────────────────────────────────────────────────────
+        // Toggles action mode. When there are 2+ actions available, Tab
+        // switches from "search items" to "search and pick an action".
+        // A second Tab or Esc returns to item-selection mode.
+        // For detail pages, Tab opens the action filter directly.
         KeyCode::Tab => {
             if let Some(ref detail) = app.detail {
                 if detail.actions.len() > 1 {
@@ -528,6 +579,9 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 app.action_selection = 0;
             }
         }
+
+        // ── Arrow keys ──────────────────────────────────────────────────
+        // Duplicate of j/k for users who prefer arrow keys.
         KeyCode::Up => {
             if app.action_mode {
                 if app.action_selection > 0 {
@@ -551,6 +605,11 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 app.selection += 1;
             }
         }
+
+        // ── Ctrl+R ──────────────────────────────────────────────────────
+        // Reload: re-reads the config file from disk and rebuilds the
+        // entire item list. Equivalent to restarting the TUI without
+        // quitting. Useful after editing config or installing an extension.
         KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             if let Ok(new_cfg) = crate::config::load(&app.config_path) {
                 app.config = new_cfg;
@@ -633,6 +692,37 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 }
             }
         }
+
+        // ── Ctrl+H (Ctrl+Backspace) ─────────────────────────────────────
+        // In ASCII, Ctrl+H = 0x08, which is the same byte most terminals
+        // send for Ctrl+Backspace. crossterm parses it as
+        // `KeyCode::Char('h') + CONTROL`. We catch it here before the
+        // generic Char(c) handler (which would append 'h' to the query).
+        // The behaviour is "delete the last word" — find the last
+        // whitespace boundary in the query and truncate there.
+        KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            let trimmed = app.query.trim_end().to_string();
+            let len = trimmed.len();
+            if let Some(pos) = trimmed[..len].rfind(char::is_whitespace) {
+                app.query.truncate(pos + 1);
+            } else {
+                app.query.clear();
+            }
+            if !app.action_mode {
+                app.filtered_items = filter_items(&app.items, &app.query)
+                    .iter().map(|(i, _)| *i).collect();
+                if !app.filtered_items.is_empty() {
+                    app.selection = 0;
+                }
+            }
+        }
+
+        // ── Ctrl+S ──────────────────────────────────────────────────────
+        // Opens the config file (~/.config/sunbeam/sunbeam.json) in the
+        // user's $EDITOR. After the editor exits, reloads the config so
+        // changes (new extensions, modified oneliners) take effect without
+        // restarting the TUI. Raw mode is temporarily disabled so the
+        // editor can use the terminal normally.
         KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             let editor = crate::utils::find_editor();
             terminal::disable_raw_mode()?;
@@ -644,6 +734,13 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 app.config = cfg;
             }
         }
+
+        // ── Character input (catch-all) ─────────────────────────────────
+        // Appends the typed character to the query string, re-filters the
+        // item list with the updated query (fuzzy match), and resets the
+        // cursor to the first match. In action mode, same but for action
+        // filtering — no re-filter needed since actions are matched
+        // separately in the statusbar module.
         KeyCode::Char(c) => {
             if app.action_mode {
                 app.query.push(c);
@@ -658,6 +755,9 @@ fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 app.selection = 0;
             }
         }
+
+        // ── All other keys ──────────────────────────────────────────────
+        // Ignored silently (Shift, Alt, function keys, etc.).
         _ => {}
     }
     Ok(true)
