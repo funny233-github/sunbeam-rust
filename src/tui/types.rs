@@ -156,6 +156,28 @@ pub fn fuzzy_score(text: &str, pattern: &str) -> i32 {
     }
 }
 
+/// Adjusts `page` so that `selection` is always inside the visible range.
+/// Also clamps `selection` when it exceeds `filtered_len`.
+pub fn clamp_page_to_selection(
+    filtered_len: usize,
+    selection: &mut usize,
+    page: &mut usize,
+    page_size: usize,
+) {
+    if page_size == 0 || filtered_len == 0 {
+        *page = 0;
+        *selection = 0;
+        return;
+    }
+    if *selection >= filtered_len {
+        *selection = filtered_len.saturating_sub(1);
+    }
+    let start = *page * page_size;
+    if *selection < start || *selection >= start + page_size {
+        *page = *selection / page_size;
+    }
+}
+
 /// Filters and scores items against a query string.
 pub fn filter_items(items: &[FilterItem], query: &str) -> Vec<(usize, i32)> {
     if query.is_empty() {

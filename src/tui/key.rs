@@ -101,6 +101,7 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 if !app.filtered_items.is_empty() {
                     app.selection = 0;
                 }
+                clamp_page_to_selection(app.filtered_items.len(), &mut app.selection, &mut app.page, app.page_size);
             }
         }
 
@@ -120,12 +121,14 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
 
         KeyCode::PageUp => {
             app.page = app.page.saturating_sub(1);
+            clamp_page_to_selection(app.filtered_items.len(), &mut app.selection, &mut app.page, app.page_size);
         }
         KeyCode::PageDown => {
             let max_page = (app.filtered_items.len().max(1) - 1) / app.page_size.max(1);
             if app.page < max_page {
                 app.page += 1;
             }
+            clamp_page_to_selection(app.filtered_items.len(), &mut app.selection, &mut app.page, app.page_size);
         }
         KeyCode::Char('g') if !app.action_mode => {
             app.page = 0;
@@ -156,6 +159,7 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
             if app.selection > 0 {
                 app.selection -= 1;
             }
+            clamp_page_to_selection(app.filtered_items.len(), &mut app.selection, &mut app.page, app.page_size);
         }
         KeyCode::Down => {
             if let Some(ref mut detail) = app.detail {
@@ -178,6 +182,7 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
             if app.selection + 1 < app.filtered_items.len() {
                 app.selection += 1;
             }
+            clamp_page_to_selection(app.filtered_items.len(), &mut app.selection, &mut app.page, app.page_size);
         }
 
         KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -265,6 +270,7 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 if !app.filtered_items.is_empty() {
                     app.selection = 0;
                 }
+                clamp_page_to_selection(app.filtered_items.len(), &mut app.selection, &mut app.page, app.page_size);
             }
         }
 
@@ -310,6 +316,7 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
             if !app.filtered_items.is_empty() {
                 app.selection = 0;
             }
+            clamp_page_to_selection(app.filtered_items.len(), &mut app.selection, &mut app.page, app.page_size);
         }
 
         _ => {}
@@ -417,15 +424,18 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
         }
         KeyCode::PageUp => {
             runner.page = runner.page.saturating_sub(1);
+            clamp_page_to_selection(runner.filtered_items.len(), &mut runner.selection, &mut runner.page, runner.page_size);
         }
         KeyCode::PageDown => {
             let max_page = (runner.filtered_items.len().max(1) - 1) / runner.page_size.max(1);
             if runner.page < max_page {
                 runner.page += 1;
             }
+            clamp_page_to_selection(runner.filtered_items.len(), &mut runner.selection, &mut runner.page, runner.page_size);
         }
         KeyCode::Up => {
             if runner.selection > 0 { runner.selection -= 1; }
+            clamp_page_to_selection(runner.filtered_items.len(), &mut runner.selection, &mut runner.page, runner.page_size);
             app.page_stack.push(Page::Runner(runner));
             return Ok(true);
         }
@@ -433,6 +443,7 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
             if runner.selection + 1 < runner.filtered_items.len() {
                 runner.selection += 1;
             }
+            clamp_page_to_selection(runner.filtered_items.len(), &mut runner.selection, &mut runner.page, runner.page_size);
             app.page_stack.push(Page::Runner(runner));
             return Ok(true);
         }
@@ -517,6 +528,7 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
             .iter().map(|(i, _)| *i).collect();
     }
     if !runner.filtered_items.is_empty() { runner.selection = 0; }
+    clamp_page_to_selection(runner.filtered_items.len(), &mut runner.selection, &mut runner.page, runner.page_size);
 
     app.page_stack.push(Page::Runner(runner));
     Ok(true)

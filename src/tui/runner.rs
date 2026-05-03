@@ -132,6 +132,7 @@ pub fn reload_runner(runner: &mut RunnerPage) -> Result<()> {
         FilterItem { item, filter_text }
     }).collect();
     runner.filtered_items = filter_items(&runner.items, &runner.query).iter().map(|(i, _)| *i).collect();
+    clamp_page_to_selection(runner.filtered_items.len(), &mut runner.selection, &mut runner.page, runner.page_size);
     runner.actions = list.actions.unwrap_or_default();
     runner.show_detail = list.show_detail.unwrap_or(false);
     runner.auto_refresh_seconds = list.auto_refresh_seconds;
