@@ -335,6 +335,8 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
     // and push back. For other keys, keep the result and push at the end.
     match key.code {
         KeyCode::Esc => {
+            app.detail = None;
+            app.form = None;
             return Ok(true);
         }
         KeyCode::Enter => {
