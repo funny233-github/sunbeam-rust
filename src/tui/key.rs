@@ -335,13 +335,70 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
             if let Some(item) = runner.items.get(idx) {
                 let actions = item.item.actions.as_ref().cloned().unwrap_or_default();
                 if let Some(action) = actions.first().cloned() {
+                    // Same-extension Run action: use runner's extension directly
+                    // instead of going through handle_run_action (which requires
+                    // an extension alias from config).
+                    if action.action_type == ActionType::Run {
+                        if let Some(ref run) = action.run {
+                            if run.extension.is_none() {
+                                if let Some(ref ext) = runner.extension {
+                                    let payload = Payload {
+                                        command: run.command.clone(),
+                                        preferences: runner.preferences.clone(),
+                                        params: run.params.clone(),
+                                        cwd: None,
+                                        r#query: None,
+                                    };
+                                    let cmd_mode = ext.command(&run.command)
+                                        .map(|c| c.mode.clone().unwrap_or(CommandMode::Filter))
+                                        .unwrap_or(CommandMode::Filter);
+                                    let result = match cmd_mode {
+                                        CommandMode::Search | CommandMode::Filter =>
+                                            crate::tui::runner::run_extension_list(app, ext.clone(), payload),
+                                        CommandMode::Detail =>
+                                            crate::tui::runner::run_extension_detail(app, ext.clone(), payload),
+                                        CommandMode::Silent => {
+                                            terminal::disable_raw_mode()?;
+                                            let r = ext.run_quiet(&payload);
+                                            terminal::enable_raw_mode()?;
+                                            if let Err(e) = r {
+                                                app.notification = format!("Error: {}", e);
+                                                app.notification_until = Some(Instant::now() + Duration::from_secs(2));
+                                            }
+                                            Ok(true)
+                                        }
+                                        CommandMode::Tty => {
+                                            let mut cmd = ext.cmd(&payload)?;
+                                            terminal::disable_raw_mode()?;
+                                            let r = cmd.spawn().and_then(|mut c| c.wait());
+                                            terminal::enable_raw_mode()?;
+                                            if let Err(e) = r {
+                                                app.notification = format!("Error: {}", e);
+                                                app.notification_until = Some(Instant::now() + Duration::from_secs(2));
+                                            }
+                                            Ok(true)
+                                        }
+                                    };
+                                    match result {
+                                        Ok(true) => {
+                                            if app.page_stack.is_empty() {
+                                                app.page_stack.push(Page::Runner(runner));
+                                            }
+                                            return Ok(true);
+                                        }
+                                        Ok(false) => return Ok(false),
+                                        Err(e) => {
+                                            app.page_stack.push(Page::Runner(runner));
+                                            return Err(e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     let result = dispatch_action(app, action);
                     match result {
                         Ok(true) => {
-                            // Only push runner back if the action did NOT create
-                            // a new page (e.g. copy, exec). If a new page was
-                            // created (e.g. run → run_extension_list), the old
-                            // runner would cover it.
                             if app.page_stack.is_empty() {
                                 app.page_stack.push(Page::Runner(runner));
                             }
