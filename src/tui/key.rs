@@ -415,13 +415,18 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
     }
 
     // Apply search (server-side) or filter (client-side) after query change.
-    if runner.mode == CommandMode::Search && !runner.query.is_empty() {
-        runner.is_loading = true;
-        let result = crate::tui::runner::reload_runner(&mut runner);
-        if let Err(e) = result {
+    if runner.mode == CommandMode::Search {
+        if runner.query.is_empty() {
+            // No query: clear pending, show all items.
+            runner.pending_query = String::new();
             runner.is_loading = false;
-            app.page_stack.push(Page::Runner(runner));
-            return Err(e);
+            runner.filtered_items = (0..runner.items.len()).collect();
+        } else {
+            // Debounce: record the query and timestamp; the event loop will
+            // call reload_runner after ~300ms of no keystrokes.
+            runner.pending_query = runner.query.clone();
+            app.last_search_keystroke = Instant::now();
+            runner.is_loading = true;
         }
     } else {
         runner.filtered_items = filter_items(&runner.items, &runner.query)

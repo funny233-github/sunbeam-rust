@@ -50,6 +50,7 @@ pub fn run_extension_list(
                 page_size: 15,
                 show_detail: list.show_detail.unwrap_or(false),
                 auto_refresh_seconds: list.auto_refresh_seconds,
+                pending_query: String::new(),
             };
 
             app.page_stack.push(Page::Runner(page));

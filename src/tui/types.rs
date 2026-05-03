@@ -51,6 +51,9 @@ pub struct AppState {
 
     // Auto-refresh tracking
     pub last_auto_refresh: Instant,
+
+    // Debounce for search mode: timestamp of last keystroke
+    pub last_search_keystroke: Instant,
 }
 
 #[derive(Clone)]
@@ -103,6 +106,8 @@ pub struct RunnerPage {
     pub page_size: usize,
     pub show_detail: bool,
     pub auto_refresh_seconds: Option<i32>,
+    /// Accumulated query waiting to be sent in search mode (debounce).
+    pub pending_query: String,
 }
 
 /// Computes a fuzzy match score between `text` and `pattern`.
