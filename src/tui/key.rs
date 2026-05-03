@@ -336,10 +336,23 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 let actions = item.item.actions.as_ref().cloned().unwrap_or_default();
                 if let Some(action) = actions.first().cloned() {
                     let result = dispatch_action(app, action);
-                    if let Ok(true) = result {
-                        app.page_stack.push(Page::Runner(runner));
+                    match result {
+                        Ok(true) => {
+                            // Only push runner back if the action did NOT create
+                            // a new page (e.g. copy, exec). If a new page was
+                            // created (e.g. run → run_extension_list), the old
+                            // runner would cover it.
+                            if app.page_stack.is_empty() {
+                                app.page_stack.push(Page::Runner(runner));
+                            }
+                            return Ok(true);
+                        }
+                        Ok(false) => return Ok(false),
+                        Err(e) => {
+                            app.page_stack.push(Page::Runner(runner));
+                            return Err(e);
+                        }
                     }
-                    return result;
                 }
             }
             app.page_stack.push(Page::Runner(runner));
