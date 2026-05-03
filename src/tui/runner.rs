@@ -133,6 +133,8 @@ pub fn reload_runner(runner: &mut RunnerPage) -> Result<()> {
     }).collect();
     runner.filtered_items = filter_items(&runner.items, &runner.query).iter().map(|(i, _)| *i).collect();
     runner.actions = list.actions.unwrap_or_default();
+    runner.show_detail = list.show_detail.unwrap_or(false);
+    runner.auto_refresh_seconds = list.auto_refresh_seconds;
     runner.is_loading = false;
     Ok(())
 }
