@@ -405,6 +405,20 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 runner.query.clear();
             }
         }
+        KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::ALT) => {
+            // Alt+letter: dispatch the action with a matching .key field
+            let idx = *runner.filtered_items.get(runner.selection).unwrap_or(&0);
+            if let Some(item) = runner.items.get(idx) {
+                if let Some(actions) = item.item.actions.as_ref() {
+                    if let Some(action) = actions.iter().find(|a| a.key.as_deref() == Some(&c.to_string())).cloned() {
+                        app.page_stack.push(Page::Runner(runner));
+                        return dispatch_action(app, action);
+                    }
+                }
+            }
+            app.page_stack.push(Page::Runner(runner));
+            return Ok(true);
+        }
         KeyCode::Char(c) => {
             runner.query.push(c);
         }

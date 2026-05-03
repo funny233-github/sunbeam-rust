@@ -106,18 +106,24 @@ pub struct Payload {
 }
 
 /// A list page returned by an extension in `search` or `filter` mode.
+///
+/// Fields use serde rename to accept both camelCase (Go protocol convention)
+/// and snake_case (Rust convention) from extension scripts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct List {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<ListItem>>,
     /// Placeholder text when the list is empty.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "emptyText")]
     pub empty_text: Option<String>,
     /// When true, a detail panel is shown beside the item list.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "showDetail")]
     pub show_detail: Option<bool>,
     /// Polling interval for auto-refresh (0 = no auto-refresh).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "autoRefreshSeconds")]
     pub auto_refresh_seconds: Option<i32>,
     /// Actions available when no item is selected.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -677,5 +683,35 @@ mod tests {
         let items = deserialized.items.unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].title, "Item 1");
+    }
+
+    #[test]
+    fn test_list_deserialize_camelcase() {
+        // Go convention: showDetail, emptyText, autoRefreshSeconds
+        let json = r#"{
+            "items": [{"title": "Item 1"}],
+            "emptyText": "Nothing here",
+            "showDetail": true,
+            "autoRefreshSeconds": 30
+        }"#;
+        let list: List = serde_json::from_str(json).unwrap();
+        assert_eq!(list.empty_text.as_deref(), Some("Nothing here"));
+        assert_eq!(list.show_detail, Some(true));
+        assert_eq!(list.auto_refresh_seconds, Some(30));
+    }
+
+    #[test]
+    fn test_list_deserialize_snakecase() {
+        // Rust convention: show_detail, empty_text, auto_refresh_seconds
+        let json = r#"{
+            "items": [{"title": "Item 1"}],
+            "empty_text": "Nothing here",
+            "show_detail": true,
+            "auto_refresh_seconds": 30
+        }"#;
+        let list: List = serde_json::from_str(json).unwrap();
+        assert_eq!(list.empty_text.as_deref(), Some("Nothing here"));
+        assert_eq!(list.show_detail, Some(true));
+        assert_eq!(list.auto_refresh_seconds, Some(30));
     }
 }

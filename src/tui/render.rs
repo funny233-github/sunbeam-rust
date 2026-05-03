@@ -361,7 +361,18 @@ fn render_extension_list_inner(f: &mut Frame, area: Rect, runner: &RunnerPage, t
     let action_text = if selected_actions.is_empty() {
         " No actions".into()
     } else {
-        selected_actions.iter().map(|a| a.title.as_deref().unwrap_or("")).collect::<Vec<_>>().join(" · ")
+        selected_actions.iter().enumerate().map(|(i, a)| {
+            let title = a.title.as_deref().unwrap_or("");
+            if i == 0 {
+                format!("{title} [enter]")
+            } else if i == 1 {
+                format!("{title} [alt+enter]")
+            } else if let Some(ref key) = a.key {
+                format!("{title} [alt+{key}]")
+            } else {
+                title.to_string()
+            }
+        }).collect::<Vec<_>>().join(" · ")
     };
     let status = Paragraph::new(format!(" {action_text} | Esc: back"))
         .block(Block::default().borders(Borders::ALL));
