@@ -173,7 +173,17 @@ pub struct Detail {
 /// A user-triggerable action attached to a page or list item.
 ///
 /// The `action_type` field determines which sub-struct is populated.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// # Deserialization
+///
+/// Uses a custom deserializer that reads the `type` discriminator first, then
+/// re-parses the JSON into the correct sub-struct — matching Go's
+/// [`UnmarshalJSON`](https://github.com/pomdtr/sunbeam/blob/main/pkg/sunbeam/action.go).
+///
+/// The sunbeam JSON protocol puts sub-struct fields at the top level
+/// (e.g. `{"type": "copy", "text": "hello"}`) rather than nested
+/// (`{"type": "copy", "copy": {"text": "hello"}}`).
+#[derive(Debug, Clone, Serialize)]
 pub struct Action {
     /// Display label in the action bar.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -199,6 +209,161 @@ pub struct Action {
     pub config: Option<ConfigAction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reload: Option<ReloadAction>,
+}
+
+impl<'de> serde::Deserialize<'de> for Action {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        // Parse into generic Value first to read the type discriminator
+        let value = serde_json::Value::deserialize(deserializer)?;
+
+        let title = value
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let key = value
+            .get("key")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let action_type: ActionType = value
+            .get("type")
+            .ok_or_else(|| Error::custom("missing 'type' field in Action"))
+            .and_then(|v| serde_json::from_value(v.clone()).map_err(Error::custom))?;
+
+        // Re-parse the same Value into the matching sub-struct.
+        // Extra top-level fields (type, title, key) are silently dropped by
+        // the sub-struct's derive(Deserialize) — matching Go behaviour.
+        match action_type {
+            ActionType::Open => {
+                let open: OpenAction =
+                    serde_json::from_value(value).map_err(Error::custom)?;
+                Ok(Action {
+                    title,
+                    key,
+                    action_type,
+                    open: Some(open),
+                    copy: None,
+                    run: None,
+                    exec: None,
+                    edit: None,
+                    config: None,
+                    reload: None,
+                })
+            }
+            ActionType::Copy => {
+                let copy: CopyAction =
+                    serde_json::from_value(value).map_err(Error::custom)?;
+                Ok(Action {
+                    title,
+                    key,
+                    action_type,
+                    copy: Some(copy),
+                    open: None,
+                    run: None,
+                    exec: None,
+                    edit: None,
+                    config: None,
+                    reload: None,
+                })
+            }
+            ActionType::Run => {
+                let run: RunAction =
+                    serde_json::from_value(value).map_err(Error::custom)?;
+                Ok(Action {
+                    title,
+                    key,
+                    action_type,
+                    run: Some(run),
+                    open: None,
+                    copy: None,
+                    exec: None,
+                    edit: None,
+                    config: None,
+                    reload: None,
+                })
+            }
+            ActionType::Exec => {
+                let exec: ExecAction =
+                    serde_json::from_value(value).map_err(Error::custom)?;
+                Ok(Action {
+                    title,
+                    key,
+                    action_type,
+                    exec: Some(exec),
+                    open: None,
+                    copy: None,
+                    run: None,
+                    edit: None,
+                    config: None,
+                    reload: None,
+                })
+            }
+            ActionType::Edit => {
+                let edit: EditAction =
+                    serde_json::from_value(value).map_err(Error::custom)?;
+                Ok(Action {
+                    title,
+                    key,
+                    action_type,
+                    edit: Some(edit),
+                    open: None,
+                    copy: None,
+                    run: None,
+                    exec: None,
+                    config: None,
+                    reload: None,
+                })
+            }
+            ActionType::Config => {
+                let config: ConfigAction =
+                    serde_json::from_value(value).map_err(Error::custom)?;
+                Ok(Action {
+                    title,
+                    key,
+                    action_type,
+                    config: Some(config),
+                    open: None,
+                    copy: None,
+                    run: None,
+                    exec: None,
+                    edit: None,
+                    reload: None,
+                })
+            }
+            ActionType::Reload => {
+                let reload: ReloadAction =
+                    serde_json::from_value(value).map_err(Error::custom)?;
+                Ok(Action {
+                    title,
+                    key,
+                    action_type,
+                    reload: Some(reload),
+                    open: None,
+                    copy: None,
+                    run: None,
+                    exec: None,
+                    edit: None,
+                    config: None,
+                })
+            }
+            ActionType::Exit => Ok(Action {
+                title,
+                key,
+                action_type,
+                open: None,
+                copy: None,
+                run: None,
+                exec: None,
+                edit: None,
+                config: None,
+                reload: None,
+            }),
+        }
+    }
 }
 
 /// Discriminator for the [`Action`] struct.
@@ -385,6 +550,98 @@ mod tests {
         let json = serde_json::to_string(&action).unwrap();
         assert!(json.contains("\"type\":\"run\""));
         assert!(json.contains("\"command\":\"search\""));
+    }
+
+    #[test]
+    fn test_action_deserialize_flat_open() {
+        let json = r#"{"type":"open","title":"Open","key":"o","url":"https://example.com"}"#;
+        let action: Action = serde_json::from_str(json).unwrap();
+        assert_eq!(action.action_type, ActionType::Open);
+        assert!(action.open.is_some());
+        assert_eq!(action.open.unwrap().url.unwrap(), "https://example.com");
+    }
+
+    #[test]
+    fn test_action_deserialize_flat_open_path() {
+        let json = r#"{"type":"open","path":"/tmp/file.txt"}"#;
+        let action: Action = serde_json::from_str(json).unwrap();
+        assert_eq!(action.action_type, ActionType::Open);
+        assert_eq!(action.open.unwrap().path.unwrap(), "/tmp/file.txt");
+    }
+
+    #[test]
+    fn test_action_deserialize_flat_copy() {
+        let json = r#"{"type":"copy","title":"Copy","text":"hello","exit":true}"#;
+        let action: Action = serde_json::from_str(json).unwrap();
+        assert_eq!(action.action_type, ActionType::Copy);
+        let copy = action.copy.unwrap();
+        assert_eq!(copy.text.unwrap(), "hello");
+        assert!(copy.exit.unwrap());
+    }
+
+    #[test]
+    fn test_action_deserialize_flat_run() {
+        let json = r#"{"type":"run","command":"search","params":{"q":"rust"},"extension":"gh"}"#;
+        let action: Action = serde_json::from_str(json).unwrap();
+        assert_eq!(action.action_type, ActionType::Run);
+        let run = action.run.unwrap();
+        assert_eq!(run.command, "search");
+        assert_eq!(run.extension.unwrap(), "gh");
+        assert!(run.params.is_some());
+    }
+
+    #[test]
+    fn test_action_deserialize_flat_run_cross_ext() {
+        let json = r#"{"type":"run","extension":"gh","command":"search"}"#;
+        let action: Action = serde_json::from_str(json).unwrap();
+        assert_eq!(action.action_type, ActionType::Run);
+        assert_eq!(action.run.unwrap().extension.unwrap(), "gh");
+    }
+
+    #[test]
+    fn test_action_deserialize_flat_exec() {
+        let json = r#"{"type":"exec","command":"echo hi","interactive":true}"#;
+        let action: Action = serde_json::from_str(json).unwrap();
+        assert_eq!(action.action_type, ActionType::Exec);
+        let exec = action.exec.unwrap();
+        assert_eq!(exec.command, "echo hi");
+        assert!(exec.interactive.unwrap());
+    }
+
+    #[test]
+    fn test_action_deserialize_flat_edit() {
+        let json = r#"{"type":"edit","path":"/tmp/f.txt","reload":true}"#;
+        let action: Action = serde_json::from_str(json).unwrap();
+        assert_eq!(action.action_type, ActionType::Edit);
+        let edit = action.edit.unwrap();
+        assert_eq!(edit.path, "/tmp/f.txt");
+        assert!(edit.reload.unwrap());
+    }
+
+    #[test]
+    fn test_action_deserialize_flat_config() {
+        let json = r#"{"type":"config","extension":"gh"}"#;
+        let action: Action = serde_json::from_str(json).unwrap();
+        assert_eq!(action.action_type, ActionType::Config);
+        assert_eq!(action.config.unwrap().extension, "gh");
+    }
+
+    #[test]
+    fn test_action_deserialize_flat_reload() {
+        let json = r#"{"type":"reload","params":{"page":2}}"#;
+        let action: Action = serde_json::from_str(json).unwrap();
+        assert_eq!(action.action_type, ActionType::Reload);
+        assert!(action.reload.unwrap().params.is_some());
+    }
+
+    #[test]
+    fn test_action_deserialize_flat_exit() {
+        let json = r#"{"type":"exit"}"#;
+        let action: Action = serde_json::from_str(json).unwrap();
+        assert_eq!(action.action_type, ActionType::Exit);
+        assert!(action.open.is_none());
+        assert!(action.copy.is_none());
+        assert!(action.run.is_none());
     }
 
     #[test]
