@@ -352,10 +352,16 @@ fn render_extension_list_inner(f: &mut Frame, area: Rect, runner: &RunnerPage, t
         .block(Block::default().borders(Borders::ALL).title(Line::from(format!(" Items{page_info} "))));
     f.render_widget(list, chunks[1]);
 
-    let action_text = if runner.actions.is_empty() {
+    // Resolve actions: selected item's actions first, fall back to page-level
+    let idx = runner.filtered_items.get(runner.selection).copied().unwrap_or(0);
+    let selected_actions = runner.items.get(idx)
+        .and_then(|item| item.item.actions.as_ref())
+        .filter(|a| !a.is_empty())
+        .unwrap_or(&runner.actions);
+    let action_text = if selected_actions.is_empty() {
         " No actions".into()
     } else {
-        runner.actions.iter().map(|a| a.title.as_deref().unwrap_or("")).collect::<Vec<_>>().join(" · ")
+        selected_actions.iter().map(|a| a.title.as_deref().unwrap_or("")).collect::<Vec<_>>().join(" · ")
     };
     let status = Paragraph::new(format!(" {action_text} | Esc: back"))
         .block(Block::default().borders(Borders::ALL));
