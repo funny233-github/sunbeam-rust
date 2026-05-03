@@ -25,8 +25,17 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
         }
 
         KeyCode::Esc => {
+            if app.err.is_some() {
+                app.err = None;
+                return Ok(true);
+            }
             if app.action_mode {
                 app.action_mode = false;
+                app.action_selection = 0;
+                return Ok(true);
+            }
+            if app.detail.as_ref().map(|d| d.action_mode).unwrap_or(false) {
+                app.detail.as_mut().unwrap().action_mode = false;
                 app.action_selection = 0;
                 return Ok(true);
             }
@@ -53,12 +62,11 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                 }
                 return Ok(true);
             }
-            if app.form.is_some() {
-                let form = app.form.take().unwrap();
+            if let Some(form) = app.form.take() {
                 let result = runner::submit_form(app, form);
                 return result;
             }
-            if let Some(ref detail) = app.detail.clone() {
+            if let Some(detail) = app.detail.as_ref() {
                 if detail.actions.is_empty() {
                     return Ok(true);
                 }
@@ -86,20 +94,18 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
         }
 
         KeyCode::Backspace => {
-            if app.action_mode {
-                app.query.pop();
-                return Ok(true);
-            }
             app.query.pop();
-            app.filtered_items = filter_items(&app.items, &app.query)
-                .iter().map(|(i, _)| *i).collect();
-            if !app.filtered_items.is_empty() {
-                app.selection = 0;
+            if !app.action_mode {
+                app.filtered_items = filter_items(&app.items, &app.query)
+                    .iter().map(|(i, _)| *i).collect();
+                if !app.filtered_items.is_empty() {
+                    app.selection = 0;
+                }
             }
         }
 
         KeyCode::Tab => {
-            if let Some(ref detail) = app.detail {
+            if let Some(detail) = app.detail.as_ref() {
                 if detail.actions.len() > 1 {
                     app.detail.as_mut().unwrap().action_mode = true;
                     return Ok(true);
@@ -112,7 +118,35 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
             }
         }
 
+        KeyCode::PageUp => {
+            app.page = app.page.saturating_sub(1);
+        }
+        KeyCode::PageDown => {
+            let max_page = (app.filtered_items.len().max(1) - 1) / app.page_size.max(1);
+            if app.page < max_page {
+                app.page += 1;
+            }
+        }
+        KeyCode::Char('g') if !app.action_mode => {
+            app.page = 0;
+            app.selection = 0;
+        }
+        KeyCode::Char('G') if !app.action_mode => {
+            let max_page = (app.filtered_items.len().max(1) - 1) / app.page_size.max(1);
+            app.page = max_page;
+            app.selection = app.filtered_items.len().saturating_sub(1);
+        }
         KeyCode::Up => {
+            if let Some(ref mut detail) = app.detail {
+                if detail.action_mode {
+                    if detail.inner_selection > 0 {
+                        detail.inner_selection -= 1;
+                    }
+                } else if detail.scroll_offset > 0 {
+                    detail.scroll_offset -= 1;
+                }
+                return Ok(true);
+            }
             if app.action_mode {
                 if app.action_selection > 0 {
                     app.action_selection -= 1;
@@ -124,6 +158,16 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
             }
         }
         KeyCode::Down => {
+            if let Some(ref mut detail) = app.detail {
+                if detail.action_mode {
+                    if detail.inner_selection + 1 < detail.actions.len() {
+                        detail.inner_selection += 1;
+                    }
+                } else {
+                    detail.scroll_offset += 1;
+                }
+                return Ok(true);
+            }
             if app.action_mode {
                 let actions = get_current_list_actions(app);
                 if app.action_selection + 1 < actions.len() {
@@ -237,6 +281,25 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
         }
 
         KeyCode::Char(c) => {
+            // Detail action mode: filter actions by name
+            if let Some(ref mut detail) = app.detail {
+                if detail.action_mode {
+                    if c == '\n' { return Ok(true); }
+                    detail.action_query.push(c);
+                    // Filter actions by fuzzy matching name
+                    let q = detail.action_query.to_lowercase();
+                    let matching: Vec<usize> = detail.actions.iter().enumerate()
+                        .filter(|(_, a)| a.title.as_deref().map_or(false, |t| t.to_lowercase().contains(&q)))
+                        .map(|(i, _)| i)
+                        .collect();
+                    if !matching.is_empty() {
+                        detail.inner_selection = matching[0];
+                    }
+                    return Ok(true);
+                }
+                // Not in action mode — ignore char input
+                return Ok(true);
+            }
             if app.action_mode {
                 app.query.push(c);
                 return Ok(true);
@@ -282,6 +345,15 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
             app.page_stack.push(Page::Runner(runner));
             return Ok(true);
         }
+        KeyCode::PageUp => {
+            runner.page = runner.page.saturating_sub(1);
+        }
+        KeyCode::PageDown => {
+            let max_page = (runner.filtered_items.len().max(1) - 1) / runner.page_size.max(1);
+            if runner.page < max_page {
+                runner.page += 1;
+            }
+        }
         KeyCode::Up => {
             if runner.selection > 0 { runner.selection -= 1; }
             app.page_stack.push(Page::Runner(runner));
@@ -296,6 +368,34 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
         }
         KeyCode::Backspace => {
             runner.query.pop();
+        }
+        KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            if let Some(ref ext) = runner.extension.clone() {
+                let editor = crate::utils::find_editor();
+                let entrypoint = ext.entrypoint.clone();
+                terminal::disable_raw_mode()?;
+                let status = std::process::Command::new("sh")
+                    .args(["-c", &format!("{} {}", editor, entrypoint.display())])
+                    .status();
+                terminal::enable_raw_mode()?;
+                if status.is_ok() {
+                    if let Ok(ext) = crate::extensions::load_extension(&entrypoint.to_string_lossy()) {
+                        runner.extension = Some(ext);
+                    }
+                }
+            }
+            app.page_stack.push(Page::Runner(runner));
+            return Ok(true);
+        }
+        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            if let Some(ref ext) = runner.extension.clone() {
+                let entrypoint = ext.entrypoint.clone();
+                if let Ok(ext) = crate::extensions::load_extension(&entrypoint.to_string_lossy()) {
+                    runner.extension = Some(ext);
+                }
+            }
+            app.page_stack.push(Page::Runner(runner));
+            return Ok(true);
         }
         KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             let trimmed = runner.query.trim_end().to_string();
@@ -357,14 +457,25 @@ pub fn get_selected_action(app: &AppState) -> Option<Action> {
 }
 
 fn handle_run_action(app: &mut AppState, run: RunAction) -> Result<bool> {
-    let extension_origin = run.extension.clone().unwrap_or_default();
+    let extension_alias = match &run.extension {
+        Some(alias) => alias.clone(),
+        None => {
+            app.notification = "Error: action missing extension reference".to_string();
+            app.notification_until = Some(Instant::now() + Duration::from_secs(2));
+            return Ok(true);
+        }
+    };
     let exts = match &app.config.extensions {
         Some(e) => e,
         None => return Ok(true),
     };
-    let ext_cfg = match exts.get(&extension_origin) {
+    let ext_cfg = match exts.get(&extension_alias) {
         Some(c) => c,
-        None => return Ok(true),
+        None => {
+            app.notification = format!("Error: extension '{}' not found", extension_alias);
+            app.notification_until = Some(Instant::now() + Duration::from_secs(2));
+            return Ok(true);
+        }
     };
     let origin = ext_cfg.origin.clone();
     let extension = match extensions::load_extension(&origin) {
@@ -393,7 +504,7 @@ fn handle_run_action(app: &mut AppState, run: RunAction) -> Result<bool> {
         CommandMode::Silent => {
             terminal::disable_raw_mode()?;
             let result = extension.run_quiet(&payload);
-            terminal::enable_raw_mode()?;
+            let _ = terminal::enable_raw_mode();
             if let Err(e) = result {
                 app.notification = format!("Error: {}", e);
                 app.notification_until = Some(Instant::now() + Duration::from_secs(2));
@@ -403,9 +514,12 @@ fn handle_run_action(app: &mut AppState, run: RunAction) -> Result<bool> {
         CommandMode::Tty => {
             let mut cmd = extension.cmd(&payload)?;
             terminal::disable_raw_mode()?;
-            let mut child = cmd.spawn()?;
-            child.wait()?;
-            terminal::enable_raw_mode()?;
+            let result = cmd.spawn().and_then(|mut child| child.wait());
+            let _ = terminal::enable_raw_mode();
+            if let Err(e) = result {
+                app.notification = format!("Error: {}", e);
+                app.notification_until = Some(Instant::now() + Duration::from_secs(2));
+            }
             Ok(true)
         }
     }
@@ -472,7 +586,6 @@ fn handle_config_action(app: &mut AppState, config_action: ConfigAction) -> Resu
         title: format!("Configure {}", alias),
         fields,
         selection: 0,
-        config: app.config.clone(),
         ext_cfg: ext_cfg.clone(),
         alias: alias.clone(),
     });

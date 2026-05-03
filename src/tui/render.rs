@@ -9,10 +9,59 @@ use ratatui::Frame;
 use crate::types::*;
 use crate::tui::types::*;
 use crate::tui::key;
+use crate::tui::render_md;
+
+const SPINNER_CHARS: &[char] = &['◐', '◓', '◑', '◒'];
+
+fn spinner_char(tick: u64) -> char {
+    SPINNER_CHARS[(tick as usize) % SPINNER_CHARS.len()]
+}
+
+fn pagination_info(current: usize, total: usize, page_size: usize) -> String {
+    if total <= page_size {
+        return format!(" ({})", total);
+    }
+    let total_pages = (total + page_size - 1) / page_size;
+    format!(" (page {}/{} — {} items)", current + 1, total_pages, total)
+}
+
+fn visible_items<'a>(
+    filtered: &'a [usize],
+    items: &'a [FilterItem],
+    page: usize,
+    page_size: usize,
+) -> Vec<(usize, &'a FilterItem)> {
+    let start = page * page_size;
+    let end = (start + page_size).min(filtered.len());
+    filtered[start..end]
+        .iter()
+        .enumerate()
+        .map(|(i, idx)| (i + start, &items[*idx]))
+        .collect()
+}
+
+/// Renders a full-screen error page.
+fn render_error_page(f: &mut Frame, area: Rect, msg: &str) {
+    let lines: Vec<Line> = vec![
+        Line::from(Span::styled(" Error", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))),
+        Line::from(""),
+        Line::from(Span::raw(msg)),
+        Line::from(""),
+        Line::from(Span::styled(" Press Esc to go back", Style::default().fg(Color::DarkGray))),
+    ];
+    let para = Paragraph::new(Text::from(lines))
+        .block(Block::default().borders(Borders::ALL).title(Line::from(" Error ")));
+    f.render_widget(para, area);
+}
 
 /// Top-level renderer that dispatches to the appropriate view.
 pub fn render(f: &mut Frame, app: &AppState) {
     let area = f.area();
+
+    if let Some(ref msg) = app.err {
+        render_error_page(f, area, msg);
+        return;
+    }
 
     if let Some(ref detail) = app.detail {
         render_detail_page(f, area, detail);
@@ -25,7 +74,7 @@ pub fn render(f: &mut Frame, app: &AppState) {
     }
 
     if let Some(Page::Runner(runner)) = app.page_stack.last() {
-        render_extension_list(f, area, runner);
+        render_extension_list(f, area, runner, app.tick);
         return;
     }
 
@@ -65,13 +114,11 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
     .block(Block::default().borders(Borders::ALL).title(Line::from(" Sunbeam ")));
     f.render_widget(search, chunks[0]);
 
-    let tui_items: Vec<TuiListItem> = app
-        .filtered_items
+    let vis_items = visible_items(&app.filtered_items, &app.items, app.page, app.page_size);
+    let tui_items: Vec<TuiListItem> = vis_items
         .iter()
-        .enumerate()
-        .map(|(i, idx)| {
-            let item = &app.items[*idx];
-            let is_selected = i == app.selection;
+        .map(|(i, item)| {
+            let is_selected = *i == app.selection;
             let style = if is_selected {
                 Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
             } else {
@@ -86,7 +133,9 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
         .collect();
 
     let list = TuiList::new(tui_items).direction(ListDirection::TopToBottom);
-    let list_block = Block::default().borders(Borders::ALL);
+    let mut list_block = Block::default().borders(Borders::ALL);
+    let page_info = pagination_info(app.page, app.filtered_items.len(), app.page_size);
+    list_block = list_block.title(Line::from(format!(" Items{page_info} ")));
     let list_widget = list.block(list_block);
     f.render_widget(list_widget, chunks[1]);
 
@@ -111,38 +160,81 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
     } else {
         action_text
     };
-
-    let status = Paragraph::new(status_text).block(Block::default().borders(Borders::ALL));
+    let page_nav = format!("  PgUp/PgDn  |{status_text}");
+    let status = Paragraph::new(page_nav).block(Block::default().borders(Borders::ALL));
     f.render_widget(status, chunks[2]);
 }
 
-/// Renders a detail page with optional action bar.
+/// Renders a detail page with markdown rendering and viewport scrolling.
 fn render_detail_page(f: &mut Frame, area: Rect, detail: &PageDetail) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(3)])
         .split(area);
 
-    let detail_text: &str = if detail.markdown.is_empty() { "No content" } else { &detail.markdown };
+    let content_area = chunks[0];
+    let inner_height = (content_area.height.max(3) - 2) as usize;
 
-    let detail_widget = Paragraph::new(Text::raw(detail_text))
-        .block(Block::default().borders(Borders::ALL).title(Line::from(" Detail ")))
-        .wrap(Wrap { trim: true });
-    f.render_widget(detail_widget, chunks[0]);
+    // Use pre-rendered lines if available, else render now
+    let rendered = if !detail.rendered_lines.is_empty() {
+        detail.rendered_lines.clone()
+    } else if !detail.markdown.is_empty() {
+        let (lines, _) = render_md::render_markdown(&detail.markdown, content_area.width as usize);
+        lines
+    } else {
+        vec![Line::from(Span::raw("No content"))]
+    };
+
+    let scroll = detail.scroll_offset.min(rendered.len().saturating_sub(inner_height));
+    let end = (scroll + inner_height).min(rendered.len());
+    let visible: Vec<Line> = if scroll < rendered.len() {
+        rendered[scroll..end].to_vec()
+    } else {
+        vec![Line::from(Span::raw(""))]
+    };
+
+    let content = Paragraph::new(Text::from(visible))
+        .block(Block::default().borders(Borders::ALL).title(Line::from(" Detail ")));
+    f.render_widget(content, chunks[0]);
+
+    let scroll_info = if rendered.len() > inner_height {
+        format!(" (scroll {}/{}) ", scroll + 1, rendered.len())
+    } else {
+        String::new()
+    };
 
     let action_text = if detail.actions.is_empty() {
         " q: back".to_string()
     } else if detail.action_mode {
-        detail.actions.iter().enumerate().map(|(i, a)| {
-            let title = a.title.as_deref().unwrap_or("");
-            if i == detail.inner_selection { format!("[{title}]") } else { format!(" {title} ") }
-        }).collect::<Vec<_>>().join("·")
+        let query = &detail.action_query;
+        let query_display = if query.is_empty() {
+            " Filter actions...".to_string()
+        } else {
+            format!(" filter: {query}")
+        };
+        let filtered: Vec<&Action> = if query.is_empty() {
+            detail.actions.iter().collect()
+        } else {
+            let q = query.to_lowercase();
+            detail.actions.iter()
+                .filter(|a| a.title.as_deref().map_or(false, |t| t.to_lowercase().contains(&q)))
+                .collect()
+        };
+        let action_list = if filtered.is_empty() {
+            " no matches ".into()
+        } else {
+            filtered.iter().enumerate().map(|(i, a)| {
+                let title = a.title.as_deref().unwrap_or("");
+                if i == detail.inner_selection { format!("[{title}]") } else { format!(" {title} ") }
+            }).collect::<Vec<_>>().join("·")
+        };
+        format!("{query_display} |{action_list}")
     } else {
         let first = detail.actions.first().map(|a| a.title.as_deref().unwrap_or("")).unwrap_or("");
         format!(" {first} · Actions(tab)")
     };
 
-    let status = Paragraph::new(format!(" q: back | {action_text}"))
+    let status = Paragraph::new(format!(" q: back{scroll_info}| {action_text}"))
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(status, chunks[1]);
 }
@@ -178,8 +270,43 @@ fn render_prefs_form(f: &mut Frame, area: Rect, form: &FormState) {
     f.render_widget(status, chunks[1]);
 }
 
+/// Renders an extension runner page (search or filter mode), optionally with a side detail panel.
+fn render_extension_list(f: &mut Frame, area: Rect, runner: &RunnerPage, tick: u64) {
+    // If show_detail is enabled, split into list+detail panels
+    if runner.show_detail {
+        let horiz = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(area);
+        render_extension_list_inner(f, horiz[0], runner, tick);
+        render_item_detail_panel(f, horiz[1], runner);
+        return;
+    }
+    render_extension_list_inner(f, area, runner, tick);
+}
+
+/// Renders the side detail panel for the currently selected list item.
+fn render_item_detail_panel(f: &mut Frame, area: Rect, runner: &RunnerPage) {
+    let idx = runner.filtered_items.get(runner.selection).copied().unwrap_or(0);
+    let detail_text = runner.items.get(idx)
+        .and_then(|item| item.item.detail.as_ref())
+        .and_then(|d| d.markdown.as_deref().or(d.text.as_deref()))
+        .unwrap_or("");
+
+    let (lines, _) = render_md::render_markdown(detail_text, area.width.saturating_sub(2) as usize);
+    let visible: Vec<Line> = lines.into_iter().take(area.height.saturating_sub(2) as usize).collect();
+
+    let content = if visible.is_empty() {
+        Paragraph::new(Text::raw(""))
+    } else {
+        Paragraph::new(Text::from(visible))
+    };
+    let panel = content.block(Block::default().borders(Borders::ALL).title(Line::from(" Detail ")));
+    f.render_widget(panel, area);
+}
+
 /// Renders an extension runner page (search or filter mode).
-fn render_extension_list(f: &mut Frame, area: Rect, runner: &RunnerPage) {
+fn render_extension_list_inner(f: &mut Frame, area: Rect, runner: &RunnerPage, tick: u64) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -189,7 +316,8 @@ fn render_extension_list(f: &mut Frame, area: Rect, runner: &RunnerPage) {
         ])
         .split(area);
 
-    let prompt = if runner.is_loading { "> ◌".to_string() } else { "> ".to_string() };
+    let spinner = spinner_char(tick);
+    let prompt = if runner.is_loading { format!("> {spinner} ") } else { "> ".to_string() };
     let query_display = if runner.is_loading {
         "Searching...".to_string()
     } else if runner.query.is_empty() {
@@ -204,11 +332,13 @@ fn render_extension_list(f: &mut Frame, area: Rect, runner: &RunnerPage) {
     .block(Block::default().borders(Borders::ALL).title(Line::from(" Extension ")));
     f.render_widget(search, chunks[0]);
 
-    let tui_items: Vec<TuiListItem> = runner
-        .filtered_items.iter().enumerate()
-        .map(|(i, idx)| {
-            let item = &runner.items[*idx];
-            let sel = i == runner.selection;
+    let runner_page = runner.page;
+    let runner_page_size = runner.page_size;
+    let vis_items = visible_items(&runner.filtered_items, &runner.items, runner_page, runner_page_size);
+    let tui_items: Vec<TuiListItem> = vis_items
+        .iter()
+        .map(|(i, item)| {
+            let sel = *i == runner.selection;
             let style = if sel { Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD) } else { Style::default() };
             let p = if sel { ">" } else { " " };
             let t = format!("{p} {}", item.item.title);
@@ -218,9 +348,10 @@ fn render_extension_list(f: &mut Frame, area: Rect, runner: &RunnerPage) {
         })
         .collect();
 
+    let page_info = pagination_info(runner_page, runner.filtered_items.len(), runner_page_size);
     let list = TuiList::new(tui_items)
         .direction(ListDirection::TopToBottom)
-        .block(Block::default().borders(Borders::ALL));
+        .block(Block::default().borders(Borders::ALL).title(Line::from(format!(" Items{page_info} "))));
     f.render_widget(list, chunks[1]);
 
     let action_text = if runner.actions.is_empty() {

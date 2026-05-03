@@ -2,6 +2,7 @@ mod types;
 mod key;
 mod runner;
 mod render;
+mod render_md;
 
 use std::io::{self};
 use std::path::Path;
@@ -82,6 +83,11 @@ pub fn run_root_list(
         width: 0,
         height: 0,
         should_quit: false,
+        err: None,
+        page: 0,
+        page_size: 15,
+        tick: 0,
+        last_auto_refresh: Instant::now(),
     };
 
     run_app(app, title)
@@ -122,7 +128,6 @@ pub fn run_form(
             title: format!("Configure {}", alias),
             fields,
             selection: 0,
-            config: cfg.clone(),
             ext_cfg,
             alias: alias.to_string(),
         }),
@@ -132,6 +137,11 @@ pub fn run_form(
         width: 0,
         height: 0,
         should_quit: false,
+        err: None,
+        page: 0,
+        page_size: 15,
+        tick: 0,
+        last_auto_refresh: Instant::now(),
     };
 
     run_app(app, "Configure Extension")
@@ -194,6 +204,18 @@ fn run_event_loop(
 
         if last_tick.elapsed() >= tick_rate {
             last_tick = Instant::now();
+            app.tick = app.tick.wrapping_add(1);
+        }
+
+        // Auto-refresh: check if the current runner page has auto_refresh_seconds set
+        if let Some(Page::Runner(ref mut runner)) = app.page_stack.last_mut() {
+            if let Some(secs) = runner.auto_refresh_seconds {
+                let duration = Duration::from_secs(secs as u64);
+                if app.last_auto_refresh.elapsed() >= duration {
+                    app.last_auto_refresh = Instant::now();
+                    let _ = crate::tui::runner::reload_runner(runner);
+                }
+            }
         }
     }
 

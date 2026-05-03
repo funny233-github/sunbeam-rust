@@ -311,3 +311,114 @@ pub struct ReloadAction {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub params: Option<serde_json::Map<String, serde_json::Value>>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_manifest_roundtrip() {
+        let manifest = Manifest {
+            title: "Test".into(),
+            description: Some("A test extension".into()),
+            preferences: None,
+            commands: vec![CommandSpec {
+                name: "cmd1".into(),
+                title: "Command 1".into(),
+                hidden: None,
+                params: None,
+                mode: Some(CommandMode::Filter),
+            }],
+        };
+        let json = serde_json::to_string(&manifest).unwrap();
+        let deserialized: Manifest = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.title, "Test");
+        assert_eq!(deserialized.commands.len(), 1);
+        assert_eq!(deserialized.commands[0].name, "cmd1");
+    }
+
+    #[test]
+    fn test_payload_roundtrip() {
+        let payload = Payload {
+            command: "search".into(),
+            preferences: None,
+            params: None,
+            cwd: Some("/tmp".into()),
+            r#query: Some("hello".into()),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        let deserialized: Payload = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.command, "search");
+        assert_eq!(deserialized.cwd.unwrap(), "/tmp");
+        assert_eq!(deserialized.r#query.unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_action_open_serde() {
+        let action = Action {
+            title: Some("Open".into()),
+            key: Some("o".into()),
+            action_type: ActionType::Open,
+            open: Some(OpenAction { url: Some("https://example.com".into()), path: None }),
+            copy: None, run: None, exec: None, edit: None, config: None, reload: None,
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("\"type\":\"open\""));
+        assert!(json.contains("example.com"));
+    }
+
+    #[test]
+    fn test_action_run_serde() {
+        let action = Action {
+            title: Some("Run".into()),
+            key: None,
+            action_type: ActionType::Run,
+            run: Some(RunAction {
+                extension: Some("gh".into()),
+                command: "search".into(),
+                params: None,
+                reload: None,
+                exit: None,
+            }),
+            open: None, copy: None, exec: None, edit: None, config: None, reload: None,
+        };
+        let json = serde_json::to_string(&action).unwrap();
+        assert!(json.contains("\"type\":\"run\""));
+        assert!(json.contains("\"command\":\"search\""));
+    }
+
+    #[test]
+    fn test_enum_variant_tags() {
+        assert_eq!(serde_json::to_string(&InputType::String).unwrap(), "\"string\"");
+        assert_eq!(serde_json::to_string(&InputType::Boolean).unwrap(), "\"boolean\"");
+        assert_eq!(serde_json::to_string(&InputType::Number).unwrap(), "\"number\"");
+        assert_eq!(serde_json::to_string(&CommandMode::Search).unwrap(), "\"search\"");
+        assert_eq!(serde_json::to_string(&CommandMode::Filter).unwrap(), "\"filter\"");
+        assert_eq!(serde_json::to_string(&ActionType::Exec).unwrap(), "\"exec\"");
+        assert_eq!(serde_json::to_string(&ActionType::Copy).unwrap(), "\"copy\"");
+        assert_eq!(serde_json::to_string(&ActionType::Exit).unwrap(), "\"exit\"");
+    }
+
+    #[test]
+    fn test_list_roundtrip() {
+        let list = List {
+            items: Some(vec![ListItem {
+                id: Some("item-1".into()),
+                title: "Item 1".into(),
+                subtitle: Some("desc".into()),
+                detail: None,
+                accessories: Some(vec!["tag".into()]),
+                actions: None,
+            }]),
+            empty_text: Some("No items".into()),
+            show_detail: None,
+            auto_refresh_seconds: None,
+            actions: None,
+        };
+        let json = serde_json::to_string(&list).unwrap();
+        let deserialized: List = serde_json::from_str(&json).unwrap();
+        let items = deserialized.items.unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].title, "Item 1");
+    }
+}

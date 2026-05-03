@@ -34,18 +34,6 @@ pub fn find_editor() -> String {
         .unwrap_or_else(|_| "vi".to_string())
 }
 
-/// Returns the user's shell from `$SHELL`, or `"/bin/sh"`.
-#[allow(dead_code)]
-pub fn find_shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
-}
-
-/// Returns the user's pager from `$PAGER`, or `"less"`.
-#[allow(dead_code)]
-pub fn find_pager() -> String {
-    std::env::var("PAGER").unwrap_or_else(|_| "less".to_string())
-}
-
 /// Opens a URL or file path using the system default application.
 ///
 /// On macOS uses `open`, on Linux uses `xdg-open`. The command is detached
@@ -68,12 +56,6 @@ pub fn open_target(target: &str) -> Result<()> {
         }
         Err(e) => anyhow::bail!("failed to open: {}", e),
     }
-}
-
-/// Strips ANSI escape sequences from a string.
-#[allow(dead_code)]
-pub fn strip_ansi(s: &str) -> String {
-    strip_ansi_escapes::strip_str(s)
 }
 
 /// Validates and normalizes an extension origin string.

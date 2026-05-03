@@ -181,7 +181,9 @@ pub fn upgrade(extension_config: &config::ExtensionConfig) -> Result<()> {
         let origin = std::path::Path::new(&extension_config.origin);
         let entrypoint = if origin.is_relative() {
             let config_path = crate::config::resolve_config_path();
-            config_path.parent().unwrap().join(origin)
+            let parent = config_path.parent()
+                .unwrap_or_else(|| std::path::Path::new("."));
+            parent.join(origin)
         } else {
             origin.to_path_buf()
         };

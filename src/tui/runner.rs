@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use crate::extensions;
 use crate::schemas;
 use crate::types::{self, *};
+use crate::tui::render_md;
 use crate::tui::types::*;
 
 /// Runs an extension command in `search` or `filter` mode, embedding the
@@ -15,7 +16,6 @@ pub fn run_extension_list(
     let mode = extension.command(&payload.command)
         .map(|c| c.mode.clone().unwrap_or(CommandMode::Filter))
         .unwrap_or(CommandMode::Filter);
-    let entrypoint = extension.entrypoint.clone();
     let result = run_extension_and_parse(&extension, &payload);
     match result {
         Ok(list) => {
@@ -36,9 +36,8 @@ pub fn run_extension_list(
 
             let filtered = filter_items(&items, "");
             let page = RunnerPage {
-                extension_origin: extension.entrypoint.to_string_lossy().to_string(),
+                extension: Some(extension.clone()),
                 command_name: payload.command.clone(),
-                entrypoint,
                 preferences: payload.preferences.clone(),
                 mode,
                 items,
@@ -46,14 +45,11 @@ pub fn run_extension_list(
                 selection: 0,
                 query: String::new(),
                 actions: list.actions.unwrap_or_default(),
-                action_selection: 0,
-                action_mode: false,
-                is_detail: false,
-                detail_text: String::new(),
-                detail_actions: vec![],
-                has_loaded: true,
                 is_loading: false,
-                auto_refresh: list.auto_refresh_seconds,
+                page: 0,
+                page_size: 15,
+                show_detail: list.show_detail.unwrap_or(false),
+                auto_refresh_seconds: list.auto_refresh_seconds,
             };
 
             app.page_stack.push(Page::Runner(page));
@@ -74,11 +70,16 @@ pub fn run_extension_detail(
 ) -> Result<bool> {
     match run_extension_and_parse_detail(&extension, &payload) {
         Ok(detail) => {
+            let text = detail.markdown.unwrap_or_else(|| detail.text.unwrap_or_default());
+            let (rendered_lines, _) = render_md::render_markdown(&text, 80);
             app.detail = Some(PageDetail {
-                markdown: detail.markdown.unwrap_or_default(),
+                markdown: text,
                 actions: detail.actions.unwrap_or_default(),
                 inner_selection: 0,
                 action_mode: false,
+                scroll_offset: 0,
+                rendered_lines,
+                action_query: String::new(),
             });
         }
         Err(e) => {
@@ -104,6 +105,7 @@ fn run_extension_and_parse_detail(extension: &extensions::Extension, payload: &P
 /// Re-runs the extension with the runner's current query and replaces its items.
 /// Used in "search" mode where every keystroke triggers a new invocation.
 pub fn reload_runner(runner: &mut RunnerPage) -> Result<()> {
+    runner.is_loading = true;
     let payload = Payload {
         command: runner.command_name.clone(),
         preferences: runner.preferences.clone(),
@@ -112,15 +114,8 @@ pub fn reload_runner(runner: &mut RunnerPage) -> Result<()> {
         r#query: Some(runner.query.clone()),
     };
 
-    let extension = extensions::Extension {
-        manifest: types::Manifest {
-            title: String::new(),
-            description: None,
-            preferences: None,
-            commands: vec![],
-        },
-        entrypoint: runner.entrypoint.clone(),
-    };
+    let extension = runner.extension.as_ref()
+        .context("cannot reload: extension not available")?;
 
     let output = extension.run(&payload)?;
     schemas::validate_list(&output).context("invalid list output")?;

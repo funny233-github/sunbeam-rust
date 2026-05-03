@@ -96,11 +96,6 @@ pub fn resolve_config_path() -> PathBuf {
 
 /// Loads and validates the config file at `config_path`.
 ///
-/// # Example
-/// ```
-/// let cfg = config::load(&config::resolve_config_path())?;
-/// ```
-///
 /// # Errors
 /// Returns an error if the file cannot be read, fails JSON schema validation,
 /// or cannot be deserialized.
@@ -132,15 +127,6 @@ impl Config {
         Ok(())
     }
 
-    /// Returns the list of installed extension aliases.
-    #[allow(dead_code)]
-    pub fn aliases(&self) -> Vec<String> {
-        self.extensions
-            .as_ref()
-            .map(|exts| exts.keys().cloned().collect())
-            .unwrap_or_default()
-    }
-
     /// Converts a user-supplied path (possibly relative or `~`-prefixed) to
     /// an absolute path resolved relative to the config file's directory.
     pub fn resolve(&self, path: &str) -> PathBuf {
@@ -155,5 +141,70 @@ impl Config {
             }
         }
         pb
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_config_path() {
+        let path = resolve_config_path();
+        assert!(path.to_string_lossy().contains("sunbeam"), "path should contain 'sunbeam': {:?}", path);
+    }
+
+    #[test]
+    fn test_config_serde_roundtrip() {
+        let cfg = Config {
+            oneliners: Some(vec![Oneliner {
+                title: "Test".into(),
+                command: "echo hi".into(),
+                interactive: None,
+                cwd: None,
+                exit: None,
+            }]),
+            extensions: None,
+            oneliner: None,
+            path: PathBuf::from("/tmp/test.json"),
+        };
+        let json = serde_json::to_string_pretty(&cfg).unwrap();
+        assert!(json.contains("oneliners"));
+        let deserialized: Config = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.oneliners.is_some());
+        assert_eq!(deserialized.oneliners.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_extension_config_serde() {
+        let ext_cfg = ExtensionConfig {
+            origin: "https://example.com/ext.ts".into(),
+            preferences: None,
+            root: Some(vec![RootItem {
+                title: "Quick".into(),
+                command: "cmd".into(),
+                params: None,
+            }]),
+        };
+        let json = serde_json::to_string(&ext_cfg).unwrap();
+        assert!(json.contains("root"));
+        let deserialized: ExtensionConfig = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.root.is_some());
+    }
+
+    #[test]
+    fn test_oneliner_serde() {
+        let o = Oneliner {
+            title: "Hello".into(),
+            command: "echo hello".into(),
+            interactive: Some(true),
+            cwd: Some("/tmp".into()),
+            exit: Some(false),
+        };
+        let json = serde_json::to_string(&o).unwrap();
+        assert!(json.contains("interactive"));
+        assert!(json.contains("cwd"));
+        let deserialized: Oneliner = serde_json::from_str(&json).unwrap();
+        assert!(deserialized.interactive.unwrap());
     }
 }
