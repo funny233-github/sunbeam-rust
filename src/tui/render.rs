@@ -318,9 +318,7 @@ fn render_extension_list_inner(f: &mut Frame, area: Rect, runner: &RunnerPage, t
 
     let spinner = spinner_char(tick);
     let prompt = if runner.is_loading { format!("> {spinner} ") } else { "> ".to_string() };
-    let query_display = if runner.is_loading {
-        "Searching...".to_string()
-    } else if runner.query.is_empty() {
+    let query_display = if runner.query.is_empty() {
         "Search Items...".to_string()
     } else {
         runner.query.clone()
