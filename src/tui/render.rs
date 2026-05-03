@@ -6,13 +6,7 @@ use ratatui::widgets::ListItem as TuiListItem;
 use ratatui::widgets::{Block, Borders, ListDirection, Paragraph, Wrap};
 use ratatui::Frame;
 
-/// Creates a `TuiListItem` with a faint separator line beneath the content,
-/// matching the original sunbeam's `DrawLines` style.
-fn list_item_with_separator(
-    content: String,
-    style: Style,
-    separator_width: usize,
-) -> TuiListItem<'static> {
+fn list_item_with_separator(content: Line<'static>, separator_width: usize) -> TuiListItem<'static> {
     let separator = if separator_width > 4 {
         Span::styled(
             "─".repeat(separator_width.saturating_sub(4)),
@@ -21,11 +15,50 @@ fn list_item_with_separator(
     } else {
         Span::raw("")
     };
-    TuiListItem::new(Text::from(vec![
-        Line::from(content),
-        Line::from(separator),
-    ]))
-    .style(style)
+    TuiListItem::new(Text::from(vec![content, Line::from(separator)]))
+}
+
+fn selected_item_style() -> Style {
+    Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+}
+
+fn dim_style() -> Style {
+    Style::default().add_modifier(Modifier::DIM)
+}
+
+fn build_item_line(
+    title: &str,
+    subtitle: Option<&str>,
+    accessories: Option<&[String]>,
+    is_selected: bool,
+) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let prefix = if is_selected { "> " } else { "  " };
+
+    spans.push(Span::styled(
+        format!("{}{}", prefix, title),
+        if is_selected { selected_item_style() } else { Style::default() },
+    ));
+
+    if let Some(sub) = subtitle {
+        if !sub.is_empty() {
+            spans.push(Span::styled(
+                format!(" {}", sub),
+                if is_selected { selected_item_style() } else { dim_style() },
+            ));
+        }
+    }
+
+    if let Some(acc) = accessories {
+        if !acc.is_empty() {
+            spans.push(Span::styled(
+                format!("  {}", acc.join(" · ")),
+                if is_selected { selected_item_style() } else { dim_style() },
+            ));
+        }
+    }
+
+    Line::from(spans)
 }
 
 use crate::types::*;
@@ -141,17 +174,13 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
     let tui_items: Vec<TuiListItem> = vis_items
         .iter()
         .map(|(i, item)| {
-            let is_selected = *i == app.selection;
-            let style = if is_selected {
-                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            let prefix = if is_selected { ">" } else { " " };
-            let title = format!("{} {}", prefix, item.item.title);
-            let subtitle = item.item.subtitle.as_deref().map(|s| format!(" {}", s)).unwrap_or_default();
-            let accessories = item.item.accessories.as_ref().map(|a| format!("  {}", a.join(" · "))).unwrap_or_default();
-            list_item_with_separator(format!("{title}{subtitle}{accessories}"), style, separator_width)
+            let line = build_item_line(
+                &item.item.title,
+                item.item.subtitle.as_deref(),
+                item.item.accessories.as_deref(),
+                *i == app.selection,
+            );
+            list_item_with_separator(line, separator_width)
         })
         .collect();
 
@@ -299,7 +328,7 @@ fn render_extension_list(f: &mut Frame, area: Rect, runner: &RunnerPage, tick: u
     if runner.show_detail {
         let horiz = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .constraints([Constraint::Ratio(1, 3), Constraint::Ratio(2, 3)])
             .split(area);
         render_extension_list_inner(f, horiz[0], runner, tick);
         render_item_detail_panel(f, horiz[1], runner);
@@ -360,13 +389,13 @@ fn render_extension_list_inner(f: &mut Frame, area: Rect, runner: &RunnerPage, t
     let tui_items: Vec<TuiListItem> = vis_items
         .iter()
         .map(|(i, item)| {
-            let sel = *i == runner.selection;
-            let style = if sel { Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD) } else { Style::default() };
-            let p = if sel { ">" } else { " " };
-            let t = format!("{p} {}", item.item.title);
-            let s = item.item.subtitle.as_deref().map(|s| format!(" {s}")).unwrap_or_default();
-            let a = item.item.accessories.as_ref().map(|a| format!("  {}", a.join(" · "))).unwrap_or_default();
-            list_item_with_separator(format!("{t}{s}{a}"), style, separator_width)
+            let line = build_item_line(
+                &item.item.title,
+                item.item.subtitle.as_deref(),
+                item.item.accessories.as_deref(),
+                *i == runner.selection,
+            );
+            list_item_with_separator(line, separator_width)
         })
         .collect();
 
