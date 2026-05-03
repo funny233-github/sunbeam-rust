@@ -281,7 +281,7 @@ impl Ctx {
                     .current_line
                     .iter()
                     .map(|s| {
-                        let mut style = s.style.clone();
+                        let mut style = s.style;
                         style = style.fg(heading_color).add_modifier(Modifier::BOLD);
                         Span::styled(s.content.clone(), style)
                     })

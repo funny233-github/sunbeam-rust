@@ -289,7 +289,7 @@ pub fn handle_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                     // Filter actions by fuzzy matching name
                     let q = detail.action_query.to_lowercase();
                     let matching: Vec<usize> = detail.actions.iter().enumerate()
-                        .filter(|(_, a)| a.title.as_deref().map_or(false, |t| t.to_lowercase().contains(&q)))
+                        .filter(|(_, a)| a.title.as_deref().is_some_and(|t| t.to_lowercase().contains(&q)))
                         .map(|(i, _)| i)
                         .collect();
                     if !matching.is_empty() {

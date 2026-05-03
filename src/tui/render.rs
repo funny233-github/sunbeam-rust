@@ -217,7 +217,7 @@ fn render_detail_page(f: &mut Frame, area: Rect, detail: &PageDetail) {
         } else {
             let q = query.to_lowercase();
             detail.actions.iter()
-                .filter(|a| a.title.as_deref().map_or(false, |t| t.to_lowercase().contains(&q)))
+                .filter(|a| a.title.as_deref().is_some_and(|t| t.to_lowercase().contains(&q)))
                 .collect()
         };
         let action_list = if filtered.is_empty() {
