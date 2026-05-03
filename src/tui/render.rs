@@ -6,6 +6,28 @@ use ratatui::widgets::ListItem as TuiListItem;
 use ratatui::widgets::{Block, Borders, ListDirection, Paragraph, Wrap};
 use ratatui::Frame;
 
+/// Creates a `TuiListItem` with a faint separator line beneath the content,
+/// matching the original sunbeam's `DrawLines` style.
+fn list_item_with_separator(
+    content: String,
+    style: Style,
+    separator_width: usize,
+) -> TuiListItem<'static> {
+    let separator = if separator_width > 4 {
+        Span::styled(
+            "─".repeat(separator_width.saturating_sub(4)),
+            Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+        )
+    } else {
+        Span::raw("")
+    };
+    TuiListItem::new(Text::from(vec![
+        Line::from(content),
+        Line::from(separator),
+    ]))
+    .style(style)
+}
+
 use crate::types::*;
 use crate::tui::types::*;
 use crate::tui::key;
@@ -114,6 +136,7 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
     .block(Block::default().borders(Borders::ALL).title(Line::from(" Sunbeam ")));
     f.render_widget(search, chunks[0]);
 
+    let separator_width = chunks[1].width.saturating_sub(2) as usize;
     let vis_items = visible_items(&app.filtered_items, &app.items, app.page, app.page_size);
     let tui_items: Vec<TuiListItem> = vis_items
         .iter()
@@ -128,7 +151,7 @@ fn render_root_list(f: &mut Frame, area: Rect, app: &AppState) {
             let title = format!("{} {}", prefix, item.item.title);
             let subtitle = item.item.subtitle.as_deref().map(|s| format!(" {}", s)).unwrap_or_default();
             let accessories = item.item.accessories.as_ref().map(|a| format!("  {}", a.join(" · "))).unwrap_or_default();
-            TuiListItem::new(format!("{title}{subtitle}{accessories}")).style(style)
+            list_item_with_separator(format!("{title}{subtitle}{accessories}"), style, separator_width)
         })
         .collect();
 
@@ -332,6 +355,7 @@ fn render_extension_list_inner(f: &mut Frame, area: Rect, runner: &RunnerPage, t
 
     let runner_page = runner.page;
     let runner_page_size = runner.page_size;
+    let separator_width = chunks[1].width.saturating_sub(2) as usize;
     let vis_items = visible_items(&runner.filtered_items, &runner.items, runner_page, runner_page_size);
     let tui_items: Vec<TuiListItem> = vis_items
         .iter()
@@ -342,7 +366,7 @@ fn render_extension_list_inner(f: &mut Frame, area: Rect, runner: &RunnerPage, t
             let t = format!("{p} {}", item.item.title);
             let s = item.item.subtitle.as_deref().map(|s| format!(" {s}")).unwrap_or_default();
             let a = item.item.accessories.as_ref().map(|a| format!("  {}", a.join(" · "))).unwrap_or_default();
-            TuiListItem::new(format!("{t}{s}{a}")).style(style)
+            list_item_with_separator(format!("{t}{s}{a}"), style, separator_width)
         })
         .collect();
 
