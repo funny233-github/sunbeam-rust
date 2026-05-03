@@ -88,6 +88,7 @@ pub fn run_root_list(
         page_size: 15,
         tick: 0,
         last_auto_refresh: Instant::now(),
+        last_search_keystroke: Instant::now(),
     };
 
     run_app(app, title)
@@ -142,6 +143,7 @@ pub fn run_form(
         page_size: 15,
         tick: 0,
         last_auto_refresh: Instant::now(),
+        last_search_keystroke: Instant::now(),
     };
 
     run_app(app, "Configure Extension")
@@ -214,6 +216,22 @@ fn run_event_loop(
                 if app.last_auto_refresh.elapsed() >= duration {
                     app.last_auto_refresh = Instant::now();
                     let _ = crate::tui::runner::reload_runner(runner);
+                }
+            }
+        }
+
+        // Debounce: after ~300ms of no keystrokes in search mode, execute the
+        // pending extension invocation accumulated during typing.
+        if app.last_search_keystroke.elapsed() >= Duration::from_millis(300) {
+            if let Some(Page::Runner(ref mut runner)) = app.page_stack.last_mut() {
+                if !runner.pending_query.is_empty() {
+                    let result = crate::tui::runner::reload_runner(runner);
+                    if let Err(e) = result {
+                        runner.is_loading = false;
+                        app.notification = format!("Search error: {}", e);
+                        app.notification_until = Some(Instant::now() + Duration::from_secs(2));
+                    }
+                    runner.pending_query = String::new();
                 }
             }
         }
