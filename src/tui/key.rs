@@ -335,8 +335,12 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
     // and push back. For other keys, keep the result and push at the end.
     match key.code {
         KeyCode::Esc => {
-            app.detail = None;
             app.form = None;
+            if app.detail.is_some() {
+                app.detail = None;
+                app.page_stack.push(Page::Runner(runner));
+                return Ok(true);
+            }
             return Ok(true);
         }
         KeyCode::Enter => {
@@ -390,7 +394,7 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                                     };
                                     match result {
                                         Ok(true) => {
-                                            if app.page_stack.is_empty() {
+                                            if app.page_stack.is_empty() || app.detail.is_some() {
                                                 app.page_stack.push(Page::Runner(runner));
                                             }
                                             return Ok(true);
@@ -408,7 +412,7 @@ fn handle_runner_key(app: &mut AppState, key: KeyEvent) -> Result<bool> {
                     let result = dispatch_action(app, action);
                     match result {
                         Ok(true) => {
-                            if app.page_stack.is_empty() {
+                            if app.page_stack.is_empty() || app.detail.is_some() {
                                 app.page_stack.push(Page::Runner(runner));
                             }
                             return Ok(true);
